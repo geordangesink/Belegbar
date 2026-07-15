@@ -160,7 +160,8 @@
     "total": "{{count}} documents",
     "total_one": "1 document",
     "bulkReExtract": "Re-read",
-    "reExtractDone": "Re-read finished: {{updated}} updated, {{skipped}} unchanged or skipped."
+    "reExtractDone": "Re-read finished: {{updated}} updated, {{skipped}} unchanged or skipped.",
+    "bulkLlmCheck": "AI check"
   },
   "review": {
     "backToList": "Back",
@@ -367,7 +368,14 @@
     "interrupted": "The import was interrupted. Please try again.",
     "internal_error": "An internal error occurred. Please try again.",
     "invalid_payload": "Invalid input. Please check the entered values.",
-    "critical_issues": "This document has critical issues and cannot be confirmed yet."
+    "critical_issues": "This document has critical issues and cannot be confirmed yet.",
+    "llm_disagreement": "The AI double-check disagrees on “{{field}}”: suggestion “{{suggested}}”. Please review."
+  },
+  "llm": {
+    "checkButton": "AI check",
+    "queuedToast": "AI check started. The result will appear on the document shortly.",
+    "bulkQueuedToast": "AI check: {{queued}} documents queued, {{skipped}} skipped.",
+    "checkedChip": "AI-checked"
   },
   "reasons": {
     "recognized_payment_date": "Payment date recognized from the document",
@@ -440,7 +448,22 @@
     "openDataFolderDesc": "Shows the folder with database and documents.",
     "dangerTitle": "Dangerous actions",
     "dangerDeleteAllHint": "Deleting all data is not available in this version yet. You can open the data folder to back up or remove data manually.",
-    "savedToast": "Setting saved."
+    "savedToast": "Setting saved.",
+    "llmGroup": "AI double-check (local)",
+    "llmIntro": "A small AI model double-checks the fields read from your documents – entirely locally on your device. The model is downloaded once (about 1 GB); your invoice text never leaves your device. It only confirms or flags values and never changes anything on its own.",
+    "llmModelLabel": "Local AI model",
+    "llmNotDownloadedDesc": "Not downloaded yet.",
+    "llmDownload": "Download model (≈1 GB)",
+    "llmDownloading": "Downloading model …",
+    "llmProgress": "{{done}} MB of {{total}} MB",
+    "llmEnable": "Enable AI double-check",
+    "llmEnableDesc": "After extraction, documents get an additional check by the local model.",
+    "llmModelSize": "{{size}} MB",
+    "llmRemove": "Remove model",
+    "llmRemoveConfirmTitle": "Remove AI model?",
+    "llmRemoveConfirmBody": "The model will be deleted from disk and the AI double-check disabled. You can download the model again at any time.",
+    "llmRemovedToast": "AI model removed.",
+    "llmUnavailable": "AI double-check unavailable"
   },
   "onboarding": {
     "step1Title": "Welcome to Belegbar",
@@ -488,6 +511,10 @@
     "page": "Page {{n}}"
   },
   "errors": {
-    "generic": "Something went wrong. Please try again."
+    "generic": "Something went wrong. Please try again.",
+    "llm_not_ready": "The AI model is not ready yet. Download it in Settings.",
+    "llm_unsupported_ram": "This device does not have enough memory for the local AI model.",
+    "llm_unsupported_cpu": "This device's processor does not support the local AI model.",
+    "llm_download_failed": "The model download failed. Check your internet connection and try again."
   }
 }

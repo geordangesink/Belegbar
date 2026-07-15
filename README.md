@@ -28,6 +28,11 @@ traceable to its underlying documents.
 - Foreign currencies preserved alongside EUR conversions with auditable
   exchange-rate sources.
 - German and English UI; system/light/dark themes; works offline.
+- Optional **local AI double-check** (Qwen 2.5 1.5B via llama.cpp): verifies
+  extracted fields entirely on-device — agreement raises confidence,
+  disagreement flags the field with a suggestion; it never changes values
+  on its own. Off by default; ~1 GB one-time model download; invoice text
+  never leaves the machine.
 
 ## Requirements
 

@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GERMAN_FEDERAL_STATES, type AppSettings } from '@shared/domain'
+import { GERMAN_FEDERAL_STATES, type AppSettings, type LlmStatus } from '@shared/domain'
 import type { UpdateSettingsPayload } from '@shared/ipc'
 import { api, errorToKey } from '../lib/api'
+import { bytesToMb, llmReasonKey } from '../lib/llm'
 import { useSettings } from '../context/SettingsContext'
 import { useToast } from '../context/ToastContext'
 import { usePeriod, yearOptions } from '../context/PeriodContext'
@@ -94,6 +95,179 @@ function Toggle({
       aria-label={label}
       onClick={() => onChange(!checked)}
     />
+  )
+}
+
+/**
+ * "KI-Doppelcheck (lokal)" — opt-in local LLM double-check of extracted
+ * fields. Status-driven: download → progress → toggle/remove; degrades to a
+ * neutral explanation when the device is unsupported.
+ */
+function LlmSection(): ReactNode {
+  const { t } = useTranslation()
+  const { settings, update } = useSettings()
+  const toast = useToast()
+
+  const [status, setStatus] = useState<LlmStatus | null>(null)
+  const [removeOpen, setRemoveOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let mounted = true
+    api()
+      .getLlmStatus()
+      .then((s) => {
+        if (mounted) setStatus(s)
+      })
+      .catch(() => {
+        /* status stays null → section shows loading only */
+      })
+    const off = api().onLlmProgress((s) => setStatus(s))
+    return () => {
+      mounted = false
+      off()
+    }
+  }, [])
+
+  const toggleEnabled = (v: boolean): void => {
+    void update({ llmCheckerEnabled: v })
+      .then(() => toast.success(t('settings.savedToast')))
+      .catch((err: unknown) => toast.error(t(errorToKey(err))))
+  }
+
+  const download = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      await api().downloadLlmModel()
+    } catch (err) {
+      toast.error(t(errorToKey(err)))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const cancelDownload = async (): Promise<void> => {
+    try {
+      await api().cancelLlmDownload()
+    } catch (err) {
+      toast.error(t(errorToKey(err)))
+    }
+  }
+
+  const removeModel = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      await api().removeLlmModel()
+      if (settings.llmCheckerEnabled) await update({ llmCheckerEnabled: false })
+      toast.success(t('settings.llmRemovedToast'))
+      try {
+        setStatus(await api().getLlmStatus())
+      } catch {
+        /* progress events keep the status current */
+      }
+    } catch (err) {
+      toast.error(t(errorToKey(err)))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const percent =
+    status && status.totalBytes > 0
+      ? Math.round(Math.min(1, Math.max(0, status.downloadedBytes / status.totalBytes)) * 100)
+      : null
+
+  return (
+    <section className="settings-group">
+      <h2 className="section-title">{t('settings.llmGroup')}</h2>
+      <div className="card">
+        <div className="settings-row">
+          <div className="sr-text">
+            <div className="sr-desc">{t('settings.llmIntro')}</div>
+          </div>
+        </div>
+        {status === null ? (
+          <Row label={t('app.loading')}>
+            <span />
+          </Row>
+        ) : status.state === 'not_downloaded' ? (
+          <Row label={t('settings.llmModelLabel')} desc={t('settings.llmNotDownloadedDesc')}>
+            <button type="button" className="btn" disabled={busy} onClick={() => void download()}>
+              {t('settings.llmDownload')}
+            </button>
+          </Row>
+        ) : status.state === 'downloading' ? (
+          <Row
+            label={t('settings.llmDownloading')}
+            desc={t('settings.llmProgress', {
+              done: bytesToMb(status.downloadedBytes),
+              total: bytesToMb(status.totalBytes)
+            })}
+          >
+            <div className="progress-track" style={{ width: 140 }} aria-hidden="true">
+              {percent === null ? (
+                <div className="progress-fill indeterminate" />
+              ) : (
+                <div className="progress-fill" style={{ width: `${percent}%` }} />
+              )}
+            </div>
+            <button type="button" className="btn" onClick={() => void cancelDownload()}>
+              {t('common.cancel')}
+            </button>
+          </Row>
+        ) : status.state === 'ready' ? (
+          <>
+            <Row label={t('settings.llmEnable')} desc={t('settings.llmEnableDesc')}>
+              <Toggle
+                checked={settings.llmCheckerEnabled}
+                label={t('settings.llmEnable')}
+                onChange={toggleEnabled}
+              />
+            </Row>
+            <Row
+              label={t('settings.llmModelLabel')}
+              desc={`${status.modelFileName} · ${t('settings.llmModelSize', {
+                size: bytesToMb(status.modelSizeBytes)
+              })}`}
+            >
+              <button
+                type="button"
+                className="btn"
+                disabled={busy}
+                onClick={() => setRemoveOpen(true)}
+              >
+                {t('settings.llmRemove')}
+              </button>
+            </Row>
+          </>
+        ) : (
+          <Row
+            label={t('settings.llmUnavailable')}
+            desc={t(llmReasonKey(status.reasonKey), { defaultValue: t('errors.generic') })}
+          >
+            {status.state === 'error' ? (
+              <button type="button" className="btn" disabled={busy} onClick={() => void download()}>
+                {t('common.retry')}
+              </button>
+            ) : (
+              <span />
+            )}
+          </Row>
+        )}
+      </div>
+      {removeOpen ? (
+        <ConfirmDialog
+          title={t('settings.llmRemoveConfirmTitle')}
+          body={t('settings.llmRemoveConfirmBody')}
+          confirmLabel={t('settings.llmRemove')}
+          onCancel={() => setRemoveOpen(false)}
+          onConfirm={() => {
+            setRemoveOpen(false)
+            void removeModel()
+          }}
+        />
+      ) : null}
+    </section>
   )
 }
 
@@ -343,6 +517,8 @@ export function Settings(): ReactNode {
           </Row>
         </div>
       </section>
+
+      <LlmSection />
 
       <section className="settings-group">
         <h2 className="section-title">{t('settings.groupData')}</h2>

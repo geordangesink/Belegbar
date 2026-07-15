@@ -15,6 +15,7 @@ import {
   listDocumentsSchema,
   periodSchema,
   reExtractSchema,
+  runLlmCheckSchema,
   setDirectionSchema,
   setPaymentDateSchema,
   setVatTreatmentSchema,
@@ -33,6 +34,8 @@ import type { DbHandle } from '../db/connection'
 import type { Repositories } from '../db/repository'
 import type { ImportPipeline } from '../import/pipeline'
 import type { DocumentService } from '../documents/service'
+import type { LlmChecker } from '../llm/checker'
+import type { LlmModelManager } from '../llm/model-manager'
 import type { Logger } from '../log'
 import { createBackup, restoreBackup } from '../data/backup'
 import { exportPeriod } from '../data/export'
@@ -48,6 +51,7 @@ export interface HandlerContext {
   repos: Repositories
   pipeline: ImportPipeline
   documents: DocumentService
+  llm: { manager: LlmModelManager; checker: LlmChecker }
   log: Logger
   getWindow(): BrowserWindow | null
   /** used by restoreBackup to shut the app down cleanly before relaunch */
@@ -233,4 +237,21 @@ export function registerIpcHandlers(ctx: HandlerContext): void {
   })
 
   handle(IPC.getSystemLocale, null, () => app.getLocale())
+
+  // -- local LLM extraction checker -------------------------------------------
+
+  handle(IPC.getLlmStatus, null, () => ctx.llm.checker.getStatus())
+  handle(IPC.downloadLlmModel, null, () => {
+    // fire-and-forget: progress + result arrive via llmProgress events
+    void ctx.llm.manager.startDownload()
+  })
+  handle(IPC.cancelLlmDownload, null, () => ctx.llm.manager.cancelDownload())
+  handle(IPC.removeLlmModel, null, () => ctx.llm.manager.removeModel())
+  handle(IPC.runLlmCheck, runLlmCheckSchema, (p) => {
+    const settings = ctx.repos.settings.get()
+    if (!settings.llmCheckerEnabled || !ctx.llm.checker.isReady()) {
+      throw new Error('llm_not_ready')
+    }
+    return ctx.llm.checker.enqueueMany(p.ids)
+  })
 }

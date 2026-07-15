@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { DocumentDirection, ReviewStatus, TaxDocument } from '@shared/domain'
+import type { DocumentDirection, LlmStatus, ReviewStatus, TaxDocument } from '@shared/domain'
 import { api, errorToKey } from '../lib/api'
 import { emitDataChanged, useDataVersion } from '../lib/bus'
 import { activeLanguage } from '../i18n'
@@ -80,6 +80,27 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   const [searchText, setSearchText] = useState(
     !preset && filterMemory.filters ? filterMemory.search : (preset?.search ?? '')
   )
+
+  // Local LLM checker status — the bulk "KI-Check" action is only offered
+  // when the feature is enabled and the model is ready.
+  const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null)
+  useEffect(() => {
+    let mounted = true
+    api()
+      .getLlmStatus()
+      .then((s) => {
+        if (mounted) setLlmStatus(s)
+      })
+      .catch(() => {
+        /* status unavailable → action stays hidden */
+      })
+    const off = api().onLlmProgress((s) => setLlmStatus(s))
+    return () => {
+      mounted = false
+      off()
+    }
+  }, [])
+  const llmReady = settings.llmCheckerEnabled && llmStatus?.state === 'ready'
 
   useEffect(() => {
     filterMemory.filters = filters
@@ -428,6 +449,22 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
           >
             {t('documents.bulkReExtract')}
           </button>
+          {llmReady ? (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() =>
+                void runBulk(async () => {
+                  const res = await api().runLlmCheck(ids)
+                  toast.success(
+                    t('llm.bulkQueuedToast', { queued: res.queued, skipped: res.skipped })
+                  )
+                })
+              }
+            >
+              {t('documents.bulkLlmCheck')}
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn btn-sm btn-danger"

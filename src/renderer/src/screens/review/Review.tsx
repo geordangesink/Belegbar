@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { TaxDocument } from '@shared/domain'
+import type { DocumentIssue, TaxDocument } from '@shared/domain'
 import { api, errorToKey } from '../../lib/api'
 import { emitDataChanged } from '../../lib/bus'
 import { formatIsoDateTime, previewFilename } from '../../lib/format'
+import { getLlmCheck, llmDisagreementCount, llmFieldLabelKey } from '../../lib/llm'
 import { activeLanguage } from '../../i18n'
 import { useRouter } from '../../context/RouterContext'
+import { useSettings } from '../../context/SettingsContext'
 import { useToast } from '../../context/ToastContext'
 import { ConfirmDialog } from '../../components/Dialog'
 import { Icon } from '../../components/Icon'
@@ -27,6 +29,7 @@ const FILENAME_KEYS: PatchKey[] = ['invoiceDate', 'invoiceNumber', 'issuerName',
 export function Review({ id }: { id: string }): ReactNode {
   const { t } = useTranslation()
   const { back, canGoBack, go } = useRouter()
+  const { settings } = useSettings()
   const toast = useToast()
 
   const [doc, setDoc] = useState<TaxDocument | null>(null)
@@ -51,6 +54,16 @@ export function Review({ id }: { id: string }): ReactNode {
     setDoc(null)
     setNotFound(false)
     void refetch()
+  }, [refetch])
+
+  // While mounted: when the LLM check queue shrinks, a check finished and may
+  // have updated this document → refetch to show new issues/confidence.
+  const llmQueueRef = useRef(0)
+  useEffect(() => {
+    return api().onLlmProgress((status) => {
+      if (status.queueLength < llmQueueRef.current) void refetch()
+      llmQueueRef.current = status.queueLength
+    })
   }, [refetch])
 
   const setField = useCallback(
@@ -146,6 +159,44 @@ export function Review({ id }: { id: string }): ReactNode {
     }
   }
 
+  const queueLlmCheck = async (): Promise<void> => {
+    if (!doc) return
+    try {
+      const status = await api().getLlmStatus()
+      if (status.state !== 'ready') {
+        toast.error(t('errors.llm_not_ready'))
+        return
+      }
+      llmQueueRef.current = Math.max(llmQueueRef.current, status.queueLength)
+      await api().runLlmCheck([doc.id])
+      toast.success(t('llm.queuedToast'))
+    } catch (err) {
+      toast.error(t(errorToKey(err)))
+    }
+  }
+
+  const llmCheck = useMemo(() => (doc ? getLlmCheck(doc.extractionRawJson) : null), [doc])
+
+  /**
+   * Issue params for t(): for llm_disagreement the raw field name is replaced
+   * with the translated review.* label where one exists.
+   */
+  const issueParams = (issue: DocumentIssue): Record<string, string | number> => {
+    const params: Record<string, string | number> = { ...issue.params }
+    if (issue.code === 'llm_disagreement') {
+      const rawField =
+        typeof params.field === 'string' && params.field !== ''
+          ? params.field
+          : (issue.field ?? '')
+      const labelKey = llmFieldLabelKey(rawField)
+      params.field = labelKey ? t(labelKey) : rawField
+      if (typeof params.suggested !== 'string' && typeof params.suggested !== 'number') {
+        params.suggested = '—'
+      }
+    }
+    return params
+  }
+
   if (notFound) {
     return (
       <div className="content-inner">
@@ -180,6 +231,11 @@ export function Review({ id }: { id: string }): ReactNode {
           </button>
           <DirectionChip direction={doc.direction} />
           <ReviewStatusChip status={doc.reviewStatus} />
+          {llmCheck !== null && llmDisagreementCount(llmCheck) === 0 ? (
+            <span className="chip chip-neutral">
+              <span aria-hidden="true">✓</span> {t('llm.checkedChip')}
+            </span>
+          ) : null}
           {dirty ? <span className="chip chip-neutral">✎ {t('review.unsavedHint')}</span> : null}
         </div>
         <p className="small muted mb-16" style={{ wordBreak: 'break-all' }}>
@@ -205,7 +261,7 @@ export function Review({ id }: { id: string }): ReactNode {
                 </span>
                 <span>
                   {t(issueMessageKey(issue.messageKey), {
-                    ...issue.params,
+                    ...issueParams(issue),
                     defaultValue: t(issueMessageKey(issue.code), { defaultValue: issue.code })
                   })}
                 </span>
@@ -268,6 +324,16 @@ export function Review({ id }: { id: string }): ReactNode {
               }
             >
               {t('review.reExtract')}
+            </button>
+          ) : null}
+          {settings.llmCheckerEnabled && doc.reviewStatus !== 'confirmed' ? (
+            <button
+              type="button"
+              className="btn"
+              disabled={saving}
+              onClick={() => void queueLlmCheck()}
+            >
+              {t('llm.checkButton')}
             </button>
           ) : null}
           {doc.deletedAt === null ? (

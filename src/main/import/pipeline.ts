@@ -66,6 +66,8 @@ export interface PipelineDeps {
   ratesProvider: ExchangeRateProvider
   emit: (progress: ImportFileProgress) => void
   log: Logger
+  /** opt-in local LLM double-check; absent or not ready = zero behavior change */
+  llm?: { isReady(): boolean; enqueue(documentId: string): boolean }
 }
 
 function issue(
@@ -620,6 +622,8 @@ export class ImportPipeline {
         now
       })
       this.deps.repos.documents.insert(document, classification)
+      // post-import hook: opt-in local LLM double-check (no-op unless ready)
+      if (settings.llmCheckerEnabled && this.deps.llm?.isReady()) this.deps.llm.enqueue(documentId)
       this.deps.repos.audit.append({
         documentId,
         eventType: 'import',

@@ -37,6 +37,14 @@ const KNOWN_ERROR_KEYS = new Set([
   'critical_issues'
 ])
 
+/** LLM checker error codes reported by main; live under errors.* (not issues.*). */
+const LLM_ERROR_KEYS = new Set([
+  'llm_not_ready',
+  'llm_unsupported_ram',
+  'llm_unsupported_cpu',
+  'llm_download_failed'
+])
+
 /**
  * Maps an unknown error (IPC rejection) to an i18n key. Main reports errors
  * either as issue codes or as 'issues.<code>' keys; anything else → generic.
@@ -52,6 +60,9 @@ export function errorToKey(err: unknown): string {
           : ''
   const match = /issues\.([a-z0-9_]+)/.exec(raw)
   if (match && KNOWN_ERROR_KEYS.has(match[1] ?? '')) return `issues.${match[1]}`
+  for (const code of LLM_ERROR_KEYS) {
+    if (raw.includes(code)) return `errors.${code}`
+  }
   for (const code of KNOWN_ERROR_KEYS) {
     if (raw.includes(code)) return `issues.${code}`
   }

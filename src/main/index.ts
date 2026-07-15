@@ -14,6 +14,8 @@ import { createRepositories, type Repositories } from './db/repository'
 import { ExtractionService } from './extraction/service'
 import { ImportPipeline } from './import/pipeline'
 import { DocumentService } from './documents/service'
+import { LlmModelManager } from './llm/model-manager'
+import { LlmChecker } from './llm/checker'
 import { EcbExchangeRateProvider } from './rates/ecb'
 import { registerIpcHandlers } from './ipc/handlers'
 import { initTariffUpdate } from './tax/tariff-update'
@@ -41,6 +43,7 @@ if (!app.requestSingleInstanceLock()) {
 let mainWindow: BrowserWindow | null = null
 let dbHandle: DbHandle | null = null
 let extraction: ExtractionService | null = null
+let llmChecker: LlmChecker | null = null
 let log: Logger | null = null
 
 app.on('second-instance', () => {
@@ -77,6 +80,8 @@ interface Boot {
   extraction: ExtractionService
   pipeline: ImportPipeline
   documents: DocumentService
+  llmManager: LlmModelManager
+  llmChecker: LlmChecker
   log: Logger
 }
 
@@ -110,6 +115,16 @@ function bootServices(): Boot {
     }
   })
 
+  // local LLM double-check: both services emit the composed status via the
+  // same notifier, so every state/queue change reaches the renderer
+  const notifyLlm = (): void => {
+    if (!llmChecker) return
+    mainWindow?.webContents.send(IPC.llmProgress, llmChecker.getStatus())
+  }
+  const llmManager = new LlmModelManager({ dataDir, log: logger, notify: notifyLlm })
+  const checker = new LlmChecker({ repos, manager: llmManager, log: logger, notify: notifyLlm })
+  llmChecker = checker
+
   const pipeline = new ImportPipeline({
     dataDir,
     repos,
@@ -118,7 +133,8 @@ function bootServices(): Boot {
     emit: (progress) => {
       mainWindow?.webContents.send(IPC.importProgress, progress)
     },
-    log: logger
+    log: logger,
+    llm: checker
   })
 
   const documents = new DocumentService({ dataDir, repos, log: logger })
@@ -130,6 +146,8 @@ function bootServices(): Boot {
     extraction: extractionService,
     pipeline,
     documents,
+    llmManager,
+    llmChecker: checker,
     log: logger
   }
 }
@@ -235,9 +253,11 @@ app.whenReady().then(async () => {
       repos: boot.repos,
       pipeline: boot.pipeline,
       documents: boot.documents,
+      llm: { manager: boot.llmManager, checker: boot.llmChecker },
       log: boot.log,
       getWindow: () => mainWindow,
       prepareForRestore: async () => {
+        await boot.llmChecker.dispose().catch(() => undefined)
         await boot.extraction.dispose().catch(() => undefined)
         boot.dbHandle.checkpoint()
         boot.dbHandle.close()
@@ -267,6 +287,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  void llmChecker?.dispose().catch(() => undefined)
   void extraction?.dispose().catch(() => undefined)
   try {
     dbHandle?.checkpoint()

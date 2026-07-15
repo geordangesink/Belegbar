@@ -28,7 +28,15 @@ const ISSUE_CODES = [
   'interrupted',
   'internal_error',
   'invalid_payload',
-  'critical_issues'
+  'critical_issues',
+  'llm_disagreement'
+] as const
+
+const LLM_ERROR_CODES = [
+  'llm_not_ready',
+  'llm_unsupported_ram',
+  'llm_unsupported_cpu',
+  'llm_download_failed'
 ] as const
 
 const PROCESSING_STATUSES = [
@@ -98,6 +106,13 @@ describe('locale resources', () => {
     for (const code of ISSUE_CODES) {
       expect(deKeys.has(`issues.${code}`), `de issues.${code}`).toBe(true)
       expect(enKeys.has(`issues.${code}`), `en issues.${code}`).toBe(true)
+    }
+  })
+
+  it('covers all LLM checker error codes as errors.<code>', () => {
+    for (const code of LLM_ERROR_CODES) {
+      expect(deKeys.has(`errors.${code}`), `de errors.${code}`).toBe(true)
+      expect(enKeys.has(`errors.${code}`), `en errors.${code}`).toBe(true)
     }
   })
 

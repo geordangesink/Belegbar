@@ -160,7 +160,8 @@
     "total": "{{count}} Belege",
     "total_one": "1 Beleg",
     "bulkReExtract": "Neu auslesen",
-    "reExtractDone": "Neu ausgelesen: {{updated}} aktualisiert, {{skipped}} unverändert oder übersprungen."
+    "reExtractDone": "Neu ausgelesen: {{updated}} aktualisiert, {{skipped}} unverändert oder übersprungen.",
+    "bulkLlmCheck": "KI-Check"
   },
   "review": {
     "backToList": "Zurück",
@@ -367,7 +368,14 @@
     "interrupted": "Der Import wurde unterbrochen. Versuche es erneut.",
     "internal_error": "Ein interner Fehler ist aufgetreten. Versuche es erneut.",
     "invalid_payload": "Ungültige Eingabe. Bitte prüfe die eingegebenen Werte.",
-    "critical_issues": "Der Beleg hat kritische Probleme und kann noch nicht bestätigt werden."
+    "critical_issues": "Der Beleg hat kritische Probleme und kann noch nicht bestätigt werden.",
+    "llm_disagreement": "KI-Zweitprüfung widerspricht bei „{{field}}“: Vorschlag „{{suggested}}“. Bitte prüfen."
+  },
+  "llm": {
+    "checkButton": "KI-Check",
+    "queuedToast": "KI-Check gestartet. Das Ergebnis erscheint in Kürze am Beleg.",
+    "bulkQueuedToast": "KI-Check: {{queued}} Belege eingereiht, {{skipped}} übersprungen.",
+    "checkedChip": "KI-geprüft"
   },
   "reasons": {
     "recognized_payment_date": "Zahlungsdatum aus dem Beleg erkannt",
@@ -440,7 +448,22 @@
     "openDataFolderDesc": "Zeigt den Ordner mit Datenbank und Belegen.",
     "dangerTitle": "Gefährliche Aktionen",
     "dangerDeleteAllHint": "Alle Daten löschen ist in dieser Version noch nicht verfügbar. Du kannst den Datenordner öffnen und die Daten manuell sichern oder entfernen.",
-    "savedToast": "Einstellung gespeichert."
+    "savedToast": "Einstellung gespeichert.",
+    "llmGroup": "KI-Doppelcheck (lokal)",
+    "llmIntro": "Ein kleines KI-Modell prüft die ausgelesenen Felder deiner Belege ein zweites Mal – komplett lokal auf deinem Gerät. Das Modell wird einmalig heruntergeladen (ca. 1 GB); dein Rechnungstext verlässt dein Gerät nie. Es bestätigt oder markiert Werte nur und ändert nie etwas von selbst.",
+    "llmModelLabel": "Lokales KI-Modell",
+    "llmNotDownloadedDesc": "Noch nicht heruntergeladen.",
+    "llmDownload": "Modell herunterladen (≈1 GB)",
+    "llmDownloading": "Modell wird heruntergeladen …",
+    "llmProgress": "{{done}} MB von {{total}} MB",
+    "llmEnable": "KI-Doppelcheck aktivieren",
+    "llmEnableDesc": "Belege werden nach dem Auslesen zusätzlich vom lokalen Modell gegengeprüft.",
+    "llmModelSize": "{{size}} MB",
+    "llmRemove": "Modell entfernen",
+    "llmRemoveConfirmTitle": "KI-Modell entfernen?",
+    "llmRemoveConfirmBody": "Das Modell wird von der Festplatte gelöscht und der KI-Doppelcheck deaktiviert. Du kannst das Modell jederzeit erneut herunterladen.",
+    "llmRemovedToast": "KI-Modell entfernt.",
+    "llmUnavailable": "KI-Doppelcheck nicht verfügbar"
   },
   "onboarding": {
     "step1Title": "Willkommen bei Belegbar",
@@ -488,6 +511,10 @@
     "page": "Seite {{n}}"
   },
   "errors": {
-    "generic": "Etwas ist schiefgelaufen. Bitte versuche es erneut."
+    "generic": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
+    "llm_not_ready": "Das KI-Modell ist noch nicht bereit. Lade es in den Einstellungen herunter.",
+    "llm_unsupported_ram": "Dieses Gerät hat zu wenig Arbeitsspeicher für das lokale KI-Modell.",
+    "llm_unsupported_cpu": "Der Prozessor dieses Geräts unterstützt das lokale KI-Modell nicht.",
+    "llm_download_failed": "Der Modell-Download ist fehlgeschlagen. Prüfe deine Internetverbindung und versuche es erneut."
   }
 }

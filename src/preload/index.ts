@@ -6,7 +6,7 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { IPC } from '../shared/ipc'
 import type { BelegbarApi } from '../shared/api'
-import type { ImportFileProgress } from '../shared/domain'
+import type { ImportFileProgress, LlmStatus } from '../shared/domain'
 
 const api: BelegbarApi = {
   // -- import ---------------------------------------------------------------
@@ -62,7 +62,23 @@ const api: BelegbarApi = {
   restoreBackup: () => ipcRenderer.invoke(IPC.restoreBackup),
   exportPeriod: (payload) => ipcRenderer.invoke(IPC.exportPeriod, payload),
   openDataFolder: () => ipcRenderer.invoke(IPC.openDataFolder),
-  getSystemLocale: () => ipcRenderer.invoke(IPC.getSystemLocale)
+  getSystemLocale: () => ipcRenderer.invoke(IPC.getSystemLocale),
+
+  // -- local LLM extraction checker -------------------------------------------
+  getLlmStatus: () => ipcRenderer.invoke(IPC.getLlmStatus),
+  downloadLlmModel: () => ipcRenderer.invoke(IPC.downloadLlmModel),
+  cancelLlmDownload: () => ipcRenderer.invoke(IPC.cancelLlmDownload),
+  removeLlmModel: () => ipcRenderer.invoke(IPC.removeLlmModel),
+  runLlmCheck: (ids) => ipcRenderer.invoke(IPC.runLlmCheck, { ids }),
+  onLlmProgress: (cb) => {
+    const listener = (_event: IpcRendererEvent, status: LlmStatus): void => {
+      cb(status)
+    }
+    ipcRenderer.on(IPC.llmProgress, listener)
+    return () => {
+      ipcRenderer.removeListener(IPC.llmProgress, listener)
+    }
+  }
 }
 
 contextBridge.exposeInMainWorld('belegbar', api)
