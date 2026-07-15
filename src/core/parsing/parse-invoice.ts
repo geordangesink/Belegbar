@@ -35,7 +35,7 @@ export interface ParseInvoiceOptions {
   ocrPages: number[]
 }
 
-export const PARSER_VERSION = '1.0.0'
+export const PARSER_VERSION = '1.1.0'
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -177,16 +177,19 @@ export function parseInvoiceText(
     !/[€$£]/.test(v) && !isDateValue(v) && !/^\+?\d{1,4}[\s-]\d{2,}[\s-]\d{2,}[\s-]?\d*$/.test(v)
 
   let invoiceNumber: ExtractedField<string> = { ...NONE }
-  for (const [re, conf] of [
-    [/^Rechnungsnummer\b/i, 0.9],
-    [/^Rechnungs[- ]?Nr\.?(?!\S)/i, 0.9],
-    [/^Invoice\s*(?:number|no\.?|nr\.?)(?!\S)/i, 0.9],
-    [/^Invoice(?!\S)/i, 0.7],
-    [/^Receipt number\b/i, 0.6]
-  ] as [RegExp, number][]) {
+  for (const [re, conf, bumpable] of [
+    [/^Rechnungsnummer\b/i, 0.9, false],
+    [/^Rechnungs[- ]?Nr\.?(?!\S)/i, 0.9, false],
+    [/^Invoice\s*(?:number|no\.?|nr\.?)(?!\S)/i, 0.9, false],
+    [/^Invoice(?!\S)/i, 0.7, true],
+    [/^Receipt number\b/i, 0.6, false]
+  ] as [RegExp, number, boolean][]) {
     const res = resolveLabel(lines, re, { validate: invoiceNoValid })
     if (res) {
-      invoiceNumber = f(res.value.replace(/^[:#]\s*/, ''), conf)
+      const value = res.value.replace(/^[:#]\s*/, '')
+      // a compact id-shaped value right after a bare "Invoice" label is reliable
+      const idShaped = /^[A-Za-z0-9][A-Za-z0-9.\-\/_]{2,19}$/.test(value)
+      invoiceNumber = f(value, bumpable && idShaped ? 0.85 : conf)
       break
     }
   }
@@ -200,9 +203,12 @@ export function parseInvoiceText(
   for (const [re, conf] of [
     [/^Date paid\b/i, 0.9],
     [/^Invoice date\b/i, 0.9],
+    [/^Issue date\b/i, 0.9],
     [/^Rechnungsdatum\b/i, 0.9],
+    [/^Belegdatum\b/i, 0.9],
+    [/^Ausstellungsdatum\b/i, 0.9],
     [/^Datum\b/i, 0.85],
-    [/^Date\b/i, 0.8]
+    [/^Date\b/i, 0.85]
   ] as [RegExp, number][]) {
     invoiceDateRes = resolveDate(re)
     if (invoiceDateRes) {
@@ -227,6 +233,25 @@ export function parseInvoiceText(
       invoiceDateIso = cand.iso
       invoiceDateConf = 0.6
       break
+    }
+    // A date standing alone on its own line (German letter layout) is almost
+    // always the document date — when it is the only such line, trust it.
+    if (invoiceDateCand !== null && invoiceDateIso !== null) {
+      const lineTextAt = (index: number): string => {
+        let t = ''
+        for (const l of lines) {
+          if (l.offset > index) break
+          t = l.text
+        }
+        return t
+      }
+      const isPureDateLine = (c: DateCandidate): boolean => lineTextAt(c.index) === c.raw
+      if (
+        isPureDateLine(invoiceDateCand) &&
+        !dates.some((c) => c.iso !== invoiceDateIso && isPureDateLine(c))
+      ) {
+        invoiceDateConf = 0.85
+      }
     }
   }
 
@@ -474,10 +499,11 @@ export function parseInvoiceText(
     const g = grossValue
     const row = tableRates.find((r) => Math.abs(r.grossAmountOriginal - g) <= 0.02)
     if (row) {
+      // the row is corroborated by the labeled gross — that IS the cross-check
       netValue = row.netAmountOriginal
       vatValue = row.vatAmountOriginal
-      netConf = 0.7
-      vatConf = 0.7
+      netConf = 0.8
+      vatConf = 0.8
       effectiveRates = [row]
     }
   }
@@ -495,11 +521,12 @@ export function parseInvoiceText(
     vatConf = 0.65
   }
   if (vatValue === null && (vatExemptWording || reverseChargeWording || kleinunternehmerWording)) {
+    // explicit exemption/reverse-charge wording is a strong statement of 0 VAT
     vatValue = 0
-    vatConf = 0.75
+    vatConf = 0.8
     if (netValue === null && grossValue !== null) {
       netValue = grossValue
-      netConf = 0.7
+      netConf = 0.8
     }
   }
   if (grossValue === null && netValue !== null && vatValue !== null && !issues.some((i) => i.code === 'conflicting_totals')) {
@@ -512,7 +539,8 @@ export function parseInvoiceText(
   }
   if (vatValue === null && grossValue !== null && netValue !== null && grossValue >= netValue) {
     vatValue = roundMoney(grossValue - netValue)
-    vatConf = 0.65
+    // printed subtotal == printed total → the document states there is no VAT
+    vatConf = vatValue === 0 && netConf >= 0.85 && grossConf >= 0.85 ? 0.8 : 0.65
   }
 
   // cross-checks
@@ -606,6 +634,10 @@ export function parseInvoiceText(
   const partyText = (v: string): boolean =>
     v.length >= 2 && v.length <= 120 && !isAmountish(hint)(v) && !isDateValue(v)
 
+  // legal footer / boilerplate lines never belong to an address block
+  const boilerplateLine =
+    /reverse charge|richtlinie|directive|steuerschuldnerschaft|handelsregister|commercial register|electronically|cash register|automatically charged|geschäftsbedingungen|kundenservice/i
+
   // free-form block after a "Bill to"-style label
   const blockAfter = (idx: number): string[] => {
     const out: string[] = []
@@ -616,8 +648,10 @@ export function parseInvoiceText(
         if (out.length > 0) break
         continue
       }
-      if (t.includes('@') || isLabelLike(t) || isSectionHeader(t)) break
+      if (t.includes('@') || isLabelLike(t) || isSectionHeader(t) || boilerplateLine.test(t)) break
       out.push(t)
+      // a country line terminates an address block
+      if (out.length > 1 && (detectCountryInText(t) !== null || /^[A-Z]{2}$/.test(t))) break
     }
     return out
   }
@@ -658,19 +692,20 @@ export function parseInvoiceText(
     } else if (own.length > 0) {
       const idx = findLineIndex(lines, new RegExp(ownTokens.map((t) => `(?=.*${t})`).join(''), 'i'))
       if (idx >= 0) {
-        recipientName = f(own, 0.7)
+        // the user's own name printed on an expense invoice → they are the recipient
+        recipientName = f(own, 0.85)
         const addr = blockAfter(idx)
         if (addr.length > 0) {
-          recipientAddress = f(addr.join(', '), 0.6)
+          recipientAddress = f(addr.join(', '), 0.7)
           const c = detectCountry(addr)
-          if (c) recipientCountry = f(c, 0.7)
+          if (c) recipientCountry = f(c, 0.75)
         }
       }
     }
     if (recipientCountry.value === null && recipientAddress.value !== null) {
       // German 5-digit postal code + city in a German-language document
       if (/\b\d{5}\s+\p{Lu}/u.test(recipientAddress.value) && /Rechnung|USt|MwSt/.test(text)) {
-        recipientCountry = f('DE', 0.5)
+        recipientCountry = f('DE', 0.85)
       }
     }
     if (kundenVat) recipientVatId = f(kundenVat.id, 0.85)
@@ -690,28 +725,45 @@ export function parseInvoiceText(
       const namePart = (parts[0] ?? t).trim().replace(/[,;]+$/, '')
       issuerName = f(namePart, 0.85)
       if (parts.length > 1) {
-        issuerAddress = f(parts.slice(1).join(', '), 0.7)
+        issuerAddress = f(parts.slice(1).join(', '), 0.8)
       } else {
-        const addr: string[] = []
-        for (let j = i + 1; j < lines.length && addr.length < 6; j++) {
-          const u = lines[j]?.text ?? ''
-          if (u.length === 0) break
-          if (u.includes('@') || /(?:^|\s)(?:VAT|USt\.?|Ust-?Id\S*|MwSt\.?|EIN)\b/i.test(u)) break
-          if (isLabelLike(u) || isSectionHeader(u) || u === namePart || LEGAL_FORM.test(u)) break
-          addr.push(u)
+        const collectAddrAfter = (start: number): string[] => {
+          const addr: string[] = []
+          for (let j = start + 1; j < lines.length && addr.length < 6; j++) {
+            const u = lines[j]?.text ?? ''
+            if (u.length === 0) break
+            if (u === namePart) continue // letterhead repeats the company name
+            if (u.includes('@') || /(?:^|\s)(?:VAT|USt\.?|Ust-?Id\S*|MwSt\.?|EIN)\b/i.test(u)) break
+            if (/^\+?[\d\s()\/.-]{7,}$/.test(u)) break // phone/fax line
+            if (isLabelLike(u) || isSectionHeader(u) || LEGAL_FORM.test(u) || boilerplateLine.test(u)) break
+            addr.push(u)
+            // a pure country line ends the block
+            if (!/\d/.test(u) && detectCountryInText(u) !== null) break
+          }
+          return addr
         }
-        if (addr.length > 0) issuerAddress = f(addr.join(', '), 0.75)
+        let addr = collectAddrAfter(i)
+        // page headers may show the bare name; the address follows a later repeat
+        for (let k = i + 1; k < lines.length && addr.length === 0; k++) {
+          if ((lines[k]?.text ?? '') === namePart) addr = collectAddrAfter(k)
+        }
+        if (addr.length > 0) issuerAddress = f(addr.join(', '), 0.8)
       }
       break
     }
     if (issuerAddress.value !== null) {
       const c = detectCountryInText(issuerAddress.value)
       if (c) issuerCountry = f(c, 0.85)
+      else if (/\bDE-\d{4,5}\b/.test(issuerAddress.value)) issuerCountry = f('DE', 0.85)
+      else if (/\b\d{5}\s+\p{Lu}/u.test(issuerAddress.value) && /Rechnung|USt|MwSt/.test(text)) {
+        // German 5-digit postal code + city in a German-language document
+        issuerCountry = f('DE', 0.85)
+      }
     }
     if (otherVats[0]) issuerVatId = f(otherVats[0].id, 0.85)
     if (issuerCountry.value === null && issuerVatId.value !== null) {
       const c = countryOfVatId(issuerVatId.value)
-      if (c) issuerCountry = f(c, 0.7)
+      if (c) issuerCountry = f(c, 0.75)
     }
     const stnr = /Steuernummer\s+(\d{2,3}\/\d{3}\/\d{4,5})/.exec(text)
     if (stnr) issuerTaxNumber = f(stnr[1] ?? null, 0.85)
@@ -811,35 +863,52 @@ export function parseInvoiceText(
 
   // ---- description -----------------------------------------------------------
   let description: ExtractedField<string> = { ...NONE }
+  const descNoise =
+    /reverse charge|richtlinie|directive|steuerschuldnerschaft|incoterms|lieferbedingung|frachtgeb|^asin\b|kundenservice|geschäftsbedingungen|vielen dank|thank you|zahlungsreferenz|handelsregister|commercial register/i
   const descValid = (v: string): boolean => {
-    if (v.length < 4 || isAmountish(hint)(v) || isDateValue(v)) return false
+    if (v.length < 4 || isDateValue(v) || descNoise.test(v)) return false
     const letters = (v.match(/\p{L}/gu) ?? []).length
-    return letters >= 6 || (letters >= 4 && v.includes(' '))
+    if (letters < 6 && !(letters >= 4 && v.includes(' '))) return false
+    // reject fragments that are essentially just an amount/quantity
+    const stripped = v.replace(/EUR|USDT|USD|GBP|CHF|[\d\s.,'%€$£\/-]/gi, '')
+    if (stripped.length < 4) return false
+    // a bare country line is address spill-over, not an item
+    if (!/\d/.test(v) && letters <= 14 && detectCountryInText(v) !== null) return false
+    return true
   }
   const services = resolveLabel(lines, /^(?:Services|Dienstleis?t?ungen)(?!\S)/i, {
     validate: descValid
   })
-  if (services) {
-    description = f(services.value, 0.85)
-  } else {
-    const header = resolveLabel(
+  if (services) description = f(services.value, 0.85)
+  if (description.value === null) {
+    // item table: first item-looking line after a "Description"-style column
+    // header, skipping the remaining column labels of the header row
+    const headerIdx = findLineIndex(
       lines,
-      /^(?:Description|Beschreibung|Artikelbezeichnung|Produktbeschreibung)$/i,
-      { validate: descValid }
+      /^(?:Description|Beschreibung|Artikelbezeichnung|Produktbeschreibung)\s*:?$/i
     )
-    if (header) description = f(header.value, 0.75)
+    if (headerIdx >= 0) {
+      for (let i = headerIdx + 1; i < lines.length && i <= headerIdx + 16; i++) {
+        const t = lines[i]?.text ?? ''
+        if (t.length === 0 || isLabelLike(t) || isSectionHeader(t)) continue
+        const cleaned = t.replace(/^\d{4,10}\s+/, '') // leading article number
+        if (!descValid(cleaned) || containsOwnName(cleaned)) continue
+        description = f(cleaned, 0.85)
+        break
+      }
+    }
   }
   if (description.value === null) {
     // German list item: "1  STRATO Mail-Archivierung 5 GB:  EUR 7,50"
     for (const line of lines) {
-      const m = /^\d{1,3}\s{2,}(\S.*?):?\s+EUR\s+[\d.,]+$/.exec(line.text)
+      const m = /^\d{1,3}\s{2,}(\S.*?):?\s+EUR\s+-?[\d.,]+$/.exec(line.text)
       if (m && descValid(m[1] ?? '')) {
-        description = f((m[1] ?? '').replace(/:$/, ''), 0.6)
+        description = f((m[1] ?? '').replace(/:$/, ''), 0.85)
         break
       }
       const n = /^\d{6,8}\s+(\p{L}.{5,})$/u.exec(line.text)
       if (n && descValid(n[1] ?? '')) {
-        description = f(n[1] ?? null, 0.5)
+        description = f(n[1] ?? null, 0.6)
         break
       }
     }
@@ -869,7 +938,22 @@ export function parseInvoiceText(
       if (!hit || hit.value <= 0) continue
       if (!bestPair || hit.value > bestPair.amt) bestPair = { text: t, amt: hit.value }
     }
-    if (bestPair) description = f(bestPair.text, 0.5)
+    if (bestPair) {
+      // the picked line is corroborated when its amount matches a resolved total
+      const corroborated =
+        (netValue !== null && Math.abs(bestPair.amt - netValue) <= 0.02) ||
+        (grossValue !== null && Math.abs(bestPair.amt - grossValue) <= 0.02)
+      description = f(bestPair.text, corroborated ? 0.85 : 0.6)
+    }
+  }
+  if (description.value !== null) {
+    // cleanup: trailing SKU ("… | B088K26FRV"), doubled spaces, dangling separators
+    const cleaned = description.value
+      .replace(/\s*\|\s*[A-Z0-9-]{6,}\s*$/, '')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/[\s,;:–-]+$/, '')
+      .trim()
+    if (descValid(cleaned)) description = f(cleaned, description.confidence)
   }
   if (description.value !== null && description.value.length > 100) {
     const cut = description.value.slice(0, 100)
@@ -903,8 +987,9 @@ export function parseInvoiceText(
   return {
     invoiceNumber,
     invoiceDate: f(invoiceDateIso, invoiceDateConf),
-    serviceDateFrom: f(serviceFrom, serviceFrom ? 0.8 : 0),
-    serviceDateTo: f(serviceTo, serviceTo ? 0.8 : 0),
+    // service periods are only ever taken from explicit ranges in the text
+    serviceDateFrom: f(serviceFrom, serviceFrom ? 0.85 : 0),
+    serviceDateTo: f(serviceTo, serviceTo ? 0.85 : 0),
     dueDate,
     paymentDate: f(paymentDateIso, paymentDateIso ? 0.85 : 0),
     issuerName,

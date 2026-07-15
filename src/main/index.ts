@@ -16,12 +16,23 @@ import { ImportPipeline } from './import/pipeline'
 import { DocumentService } from './documents/service'
 import { EcbExchangeRateProvider } from './rates/ecb'
 import { registerIpcHandlers } from './ipc/handlers'
+import { initTariffUpdate } from './tax/tariff-update'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // ---------------------------------------------------------------------------
 // single instance
 // ---------------------------------------------------------------------------
+
+// A BELEGBAR_DATA_DIR override (tests, parallel profiles) must isolate the
+// whole profile — including the single-instance lock, which is keyed on
+// userData — before the lock is requested.
+{
+  const override = process.env['BELEGBAR_DATA_DIR']
+  if (override && override.trim() !== '') {
+    app.setPath('userData', path.resolve(override))
+  }
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -235,6 +246,7 @@ app.whenReady().then(async () => {
     })
 
     await boot.pipeline.recoverOnBoot()
+    initTariffUpdate({ dataDir: boot.dataDir, log: boot.log }) // non-blocking §32a refresh
     createWindow()
 
     app.on('activate', () => {
@@ -244,6 +256,8 @@ app.whenReady().then(async () => {
     log?.error('boot_failed', {
       name: err instanceof Error ? err.name : typeof err
     })
+    // stderr is local-only; a boot failure must be diagnosable
+    console.error('[belegbar] boot failed:', err)
     app.exit(1)
   }
 })

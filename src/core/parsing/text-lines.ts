@@ -23,7 +23,7 @@ const LABEL_LIKE: RegExp[] = [
   /^(?:payment method|payment history)\s*:?$/i,
   /^amount paid:?$/i,
   /^(?:description|beschreibung|artikelbezeichnung|produktbeschreibung)\s*:?$/i,
-  /^(?:qty|quantity|menge|anzahl|units?)\s*:?$/i,
+  /^(?:qty|quantity|menge|anzahl|units?)\s*[\/:]?\s*$/i,
   /^(?:unit price|stückpreis|einzel-?|preis je einheit.*)\s*:?$/i,
   /^(?:tax|amount|betrag|summe)\s*(?:\(.*\))?\s*:?$/i,
   /^amount\s*\(.*\)$/i,
@@ -39,13 +39,14 @@ const LABEL_LIKE: RegExp[] = [
   /^(?:postal code|postleitzahl|plz|city|stadt|country|land)\s*:?$/i,
   /^(?:supplier|lieferant)\s*:?$/i,
   /^(?:e-?mail(?:[- ]?(?:address|adresse))?|email address)\s*:?$/i,
+  /^(?:username|user[- ]?id)\s*:?$/i,
   /^(?:services|dienstleis?t?ungen)\s*:?$/i,
   /^(?:zahlbetrag|gesamtpreis|gesamtbetrag|nettobetrag|bruttobetrag)\s*:?$/i,
   /^gesamt\s*ust\.?:?$/i,
   /^ust\.?\s*gesamt:?$/i,
   /^(?:ust|mwst)\.?[- ]?(?:betrag|%|satz)?\.?\s*:?$/i,
   /^mwst\.?[\s.]*(?:mwst\.?)?[- ]?satz$/i,
-  /^netto(?:\s*warenwert)?\s*:?$/i,
+  /^netto-?(?:\s*warenwert)?\s*:?$/i,
   /^brutto:?$/i,
   /^rechnungsbetrag(?:\s*\(brutto\))?\s*:?$/i,
   /^split-\/?ust\.?\s*%?:?$/i,
@@ -77,7 +78,9 @@ export function toLines(text: string): TextLine[] {
   const out: TextLine[] = []
   let offset = 0
   for (const raw of text.split('\n')) {
-    let t = raw.trim()
+    // NBSP/narrow-NBSP → regular space (PDF text layers love them); same length,
+    // so offsets into the original text stay valid.
+    let t = raw.replace(/[  ]/g, ' ').trim()
     if (NOISE.test(t)) t = ''
     out.push({ text: t, offset })
     offset += raw.length + 1

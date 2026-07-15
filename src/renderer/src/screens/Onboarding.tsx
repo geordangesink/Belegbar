@@ -22,6 +22,7 @@ interface Draft {
   incomeTaxMethod: IncomeTaxMethod
   vatMethod: VatMethod
   vatFilingFrequency: VatFilingFrequency
+  churchTax: AppSettings['churchTax']
   moveOriginalsAfterImport: boolean
 }
 
@@ -66,6 +67,7 @@ export function Onboarding({ onDone }: { onDone: () => void }): ReactNode {
     incomeTaxMethod: settings.incomeTaxMethod,
     vatMethod: settings.vatMethod,
     vatFilingFrequency: settings.vatFilingFrequency,
+    churchTax: settings.churchTax,
     moveOriginalsAfterImport: settings.moveOriginalsAfterImport
   })
 
@@ -91,6 +93,7 @@ export function Onboarding({ onDone }: { onDone: () => void }): ReactNode {
         incomeTaxMethod: draft.incomeTaxMethod,
         vatMethod: draft.vatMethod,
         vatFilingFrequency: draft.vatFilingFrequency,
+        churchTax: draft.churchTax,
         moveOriginalsAfterImport: draft.moveOriginalsAfterImport,
         onboardingCompleted: true
       })
@@ -202,6 +205,11 @@ export function Onboarding({ onDone }: { onDone: () => void }): ReactNode {
           { value: 'unsure', title: t('vatMethod.unsure'), desc: t('vatMethodDesc.unsure') }
         ]}
       />
+    </div>,
+    // 4 — filing rhythm + church tax
+    <div key="s3b" className="stack">
+      <h1 style={{ fontSize: 22 }}>{t('onboarding.step3bTitle')}</h1>
+      <p className="muted">{t('onboarding.step3bBody')}</p>
       <h2 className="section-title mt-16">{t('onboarding.filingTitle')}</h2>
       <OptionCards
         value={draft.vatFilingFrequency}
@@ -212,8 +220,18 @@ export function Onboarding({ onDone }: { onDone: () => void }): ReactNode {
           { value: 'yearly', title: t('filingFrequency.yearly'), desc: t('onboarding.filingYearlyDesc') }
         ]}
       />
+      <h2 className="section-title mt-16">{t('settings.churchTaxLabel')}</h2>
+      <OptionCards
+        value={draft.churchTax}
+        onChange={(v) => set('churchTax', v)}
+        options={[
+          { value: 'none', title: t('settings.churchNone'), desc: t('onboarding.churchNoneDesc') },
+          { value: 'rate8', title: t('settings.churchRate8'), desc: t('onboarding.church8Desc') },
+          { value: 'rate9', title: t('settings.churchRate9'), desc: t('onboarding.church9Desc') }
+        ]}
+      />
     </div>,
-    // 4 — import behavior
+    // 5 — import behavior
     <div key="s4" className="stack">
       <h1 style={{ fontSize: 22 }}>{t('onboarding.step4Title')}</h1>
       <p className="muted">{t('onboarding.step4Body')}</p>

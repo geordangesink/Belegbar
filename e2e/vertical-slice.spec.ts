@@ -93,7 +93,16 @@ test.describe.serial('vertical slice', () => {
     // Onboarding step 1: welcome — continue through all four steps.
     await expect(page.getByTestId('onboarding').or(page.locator('text=/Willkommen|Welcome/i')).first())
       .toBeVisible({ timeout: 20_000 })
-    for (let step = 0; step < 4; step++) {
+    // click through however many wizard steps exist until the shell appears;
+    // detect the shell via the sidebar nav — onboarding copy mentions
+    // "Income", so drop-zone text is not a safe signal
+    for (let step = 0; step < 8; step++) {
+      const done = await page
+        .getByRole('button', { name: /übersicht|overview/i })
+        .first()
+        .isVisible()
+        .catch(() => false)
+      if (done) break
       const next = page
         .getByRole('button', { name: /weiter|continue|next|let.?s go|los geht|get started|fertig|finish/i })
         .first()
@@ -216,8 +225,10 @@ test.describe.serial('vertical slice', () => {
     })
     await app.close()
     await launch()
-    // No onboarding this time — straight to the shell.
-    await expect(page.locator('text=/EINNAHMEN|INCOME/i').first()).toBeVisible({ timeout: 20_000 })
+    // No onboarding this time — straight to the shell (sidebar nav present).
+    await expect(
+      page.getByRole('button', { name: /übersicht|overview/i }).first()
+    ).toBeVisible({ timeout: 20_000 })
     const after = await page.evaluate(async () => {
       const res = await window.belegbar.listDocuments({ limit: 10, offset: 0 })
       return res.documents.map((d) => d.id).sort()

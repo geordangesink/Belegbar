@@ -158,9 +158,9 @@ describe('parseInvoiceText — Strato-style German classic', () => {
     const r = parseInvoiceText(STRATO_STYLE_GERMAN, expenseOpts)
     expect(r.invoiceNumber.value).toBe('DRP000000001')
     expect(r.invoiceDate.value).toBe('2025-12-01')
-    // fallback (unlabeled) date → reduced confidence
-    expect(r.invoiceDate.confidence).toBeGreaterThanOrEqual(0.5)
-    expect(r.invoiceDate.confidence).toBeLessThanOrEqual(0.7)
+    // unlabeled, but the only date standing alone on its own line (classic
+    // German letter layout) → treated as the document date with confidence
+    expect(r.invoiceDate.confidence).toBeGreaterThanOrEqual(0.85)
     expect(r.serviceDateFrom.value).toBe('2025-11-30')
     expect(r.serviceDateTo.value).toBe('2026-02-27')
     expect(r.netAmount.value).toBe(6.3)
@@ -181,8 +181,8 @@ describe('parseInvoiceText — own invoice template (income)', () => {
   it('EN variant: third-country B2B service, tax exempt', () => {
     const r = parseInvoiceText(OWN_TEMPLATE_EN_INCOME, incomeOpts)
     expect(r.invoiceNumber.value).toBe('2026.01.1')
-    expect(r.invoiceNumber.confidence).toBeGreaterThanOrEqual(0.6)
-    expect(r.invoiceNumber.confidence).toBeLessThanOrEqual(0.8)
+    // id-shaped value directly under a bare "Invoice" label → confident
+    expect(r.invoiceNumber.confidence).toBeGreaterThanOrEqual(0.85)
     expect(r.invoiceDate.value).toBe('2026-01-24')
     expect(codes(r)).not.toContain('ambiguous_date_format')
     expect(r.currency.value).toBe('EUR')

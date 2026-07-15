@@ -2,7 +2,7 @@
  * Typed repositories mapping DB rows ↔ domain objects.
  * JSON-ish columns are parsed/stringified here and nowhere else.
  */
-import { and, asc, desc, eq, isNull, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { v4 as uuidv4 } from 'uuid'
 import {
@@ -206,6 +206,28 @@ export interface DocumentListPage {
   total: number
 }
 
+/**
+ * Criteria for near-duplicate detection: a document with different bytes
+ * (exact duplicates are caught by sha256 earlier) that looks like the same
+ * invoice. `excludeSha256` is the content hash of the incoming file.
+ */
+export interface PossibleDuplicateCriteria {
+  direction: DocumentDirection
+  /** ISO date; callers must skip the check when the new document has none */
+  invoiceDate: string
+  grossAmountOriginal: number
+  invoiceNumber: string | null
+  issuerName: string | null
+  recipientName: string | null
+  excludeSha256: string
+}
+
+/**
+ * ±0.01 amount window with a little headroom for REAL-column float noise
+ * (e.g. 100.01 - 100.00 is slightly more than 0.01 in IEEE 754).
+ */
+const GROSS_AMOUNT_TOLERANCE = 0.0100001
+
 export class DocumentRepository {
   constructor(private readonly db: Db) {}
 
@@ -239,6 +261,51 @@ export class DocumentRepository {
       .where(and(eq(documents.sha256, sha256), isNull(documents.deletedAt)))
       .get()
     return row ? rowToDocument(row) : null
+  }
+
+  /**
+   * Near-duplicate detection (SQL-side): active documents with the same
+   * direction, the same invoice date and a gross amount within ±0.01 that
+   * also share the invoice number (when both sides have one) or the
+   * counterparty name (issuer for expenses, recipient for income,
+   * case-insensitive). Documents with the excluded sha256 are exact
+   * duplicates and are handled by findActiveBySha256 instead.
+   */
+  findPossibleDuplicates(criteria: PossibleDuplicateCriteria): TaxDocument[] {
+    const counterpartyColumn =
+      criteria.direction === 'income' ? documents.recipientName : documents.issuerName
+    const counterpartyName =
+      criteria.direction === 'income' ? criteria.recipientName : criteria.issuerName
+
+    const identityMatchers: SQL[] = []
+    if (criteria.invoiceNumber !== null) {
+      // equality implies the stored invoice_number is also non-null
+      identityMatchers.push(eq(documents.invoiceNumber, criteria.invoiceNumber))
+    }
+    if (counterpartyName !== null) {
+      // LOWER(NULL) = … is never true, so NULL counterparties never match
+      identityMatchers.push(
+        sql`LOWER(${counterpartyColumn}) = LOWER(${counterpartyName})`
+      )
+    }
+    if (identityMatchers.length === 0) return []
+
+    return this.db
+      .select()
+      .from(documents)
+      .where(
+        and(
+          isNull(documents.deletedAt),
+          eq(documents.direction, criteria.direction),
+          eq(documents.invoiceDate, criteria.invoiceDate),
+          sql`ABS(${documents.grossAmountOriginal} - ${criteria.grossAmountOriginal}) <= ${GROSS_AMOUNT_TOLERANCE}`,
+          ne(documents.sha256, criteria.excludeSha256),
+          or(...identityMatchers)
+        )
+      )
+      .orderBy(asc(documents.createdAt))
+      .all()
+      .map(rowToDocument)
   }
 
   listAllActive(): TaxDocument[] {

@@ -168,6 +168,7 @@ export function Review({ id }: { id: string }): ReactNode {
   return (
     <div className="review-layout">
       <div className="review-fields">
+        <div className="rf-scroll">
         <div className="row mb-16" style={{ flexWrap: 'wrap' }}>
           <button
             type="button"
@@ -226,6 +227,7 @@ export function Review({ id }: { id: string }): ReactNode {
             <span>{t('review.filenameHint', { name: filenameHint })}</span>
           </div>
         ) : null}
+        </div>
 
         <div className="review-footer">
           <button

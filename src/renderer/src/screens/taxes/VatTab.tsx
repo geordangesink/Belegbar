@@ -130,7 +130,18 @@ export function VatTab(): ReactNode {
 
   if (!summary) return <div className="empty-state">{t('app.loading')}</div>
 
-  const provisionalCount = summary.revenueNeedingReview + summary.expensesNeedingReview
+  // revenueNeedingReview/expensesNeedingReview are EUR sums — the link line
+  // needs the number of documents, so count unique provisional ids instead
+  const provisionalCount = new Set([
+    ...summary.outputVat.provisionalIds,
+    ...summary.inputVat.provisionalIds,
+    ...summary.reverseChargeVat.provisionalIds,
+    ...summary.reverseChargeInputVat.provisionalIds,
+    ...summary.domesticTaxableRevenue.provisionalIds,
+    ...summary.euReverseChargeRevenue.provisionalIds,
+    ...summary.thirdCountryNonTaxableRevenue.provisionalIds,
+    ...summary.taxExemptRevenue.provisionalIds
+  ]).size
   const refund = summary.estimatedPayable < 0
 
   const periodLabel =
@@ -215,9 +226,7 @@ export function VatTab(): ReactNode {
                   </span>{' '}
                   {t('taxes.revNeedsReview')}
                 </td>
-                <td className="amount">
-                  {t('taxes.revNeedsReviewCount', { count: summary.revenueNeedingReview })}
-                </td>
+                <td className="amount">{formatEur(summary.revenueNeedingReview, lang)}</td>
               </tr>
             </tbody>
           </table>

@@ -3,6 +3,13 @@
  * One engine per supported tax year; selection by year with explicit
  * version labels. Everything here is an ESTIMATE — the UI must say so.
  *
+ * The tariff itself is evaluated by the single evaluator in
+ * tariff-override.ts; built-in parameter sets and validated runtime
+ * overrides (fetched from gesetze-im-internet.de) both flow through it.
+ * When an override is registered for a year, getIncomeTaxEngine prefers
+ * it and appends the override source to the version label, e.g.
+ * '2026.1+gii-20260715'.
+ *
  * Tariff parameters verified against the published § 32a EStG texts:
  * - 2025: Grundfreibetrag 12 096 €; (932,30·y + 1 400)·y up to 17 443 €;
  *   (176,64·z + 2 397)·z + 1 015,13 up to 68 480 €; 0,42·x − 10 911,92 up to
@@ -14,6 +21,13 @@
  * 20 350 € (2026) single — doubled for joint assessment — with a mitigation
  * zone capping the surcharge at 11,9 % of the tax above the Freigrenze.
  */
+import {
+  evaluateTariff,
+  getRegisteredOverrideYears,
+  getTariffOverride,
+  tariffMarginalRate,
+  type Section32aParams
+} from './tariff-override'
 
 export interface IncomeTaxEngineInput {
   year: number
@@ -42,101 +56,53 @@ export interface IncomeTaxEngine {
 interface TariffParameters {
   year: number
   version: string
-  /** zone 1 upper bound: tax-free basic allowance */
-  grundfreibetrag: number
-  /** zone 2 upper bound (also the offset for z in zone 3) */
-  progression1End: number
-  /** quadratic factor of zone 2 */
-  progression1Factor: number
-  /** zone 3 upper bound */
-  progression2End: number
-  /** quadratic factor of zone 3 */
-  progression2Factor: number
-  /** additive constant of zone 3 */
-  progression2Constant: number
-  /** zone 4 upper bound (42 % zone) */
-  proportionalEnd: number
-  /** subtraction constant of the 42 % zone */
-  proportionalOffset: number
-  /** subtraction constant of the 45 % zone */
-  topOffset: number
-  /** solidarity surcharge Freigrenze for single assessment */
+  params: Section32aParams
+  /** solidarity surcharge Freigrenze for single assessment (SolzG, not §32a) */
   soliThresholdSingle: number
 }
 
-const PROGRESSION1_LINEAR = 1400
-const PROGRESSION2_LINEAR = 2397
-const RATE_ZONE4 = 0.42
-const RATE_ZONE5 = 0.45
 const SOLI_RATE = 0.055
 const SOLI_MITIGATION_RATE = 0.119
 
 const TARIFF_2025: TariffParameters = {
   year: 2025,
   version: '2025.1',
-  grundfreibetrag: 12096,
-  progression1End: 17443,
-  progression1Factor: 932.3,
-  progression2End: 68480,
-  progression2Factor: 176.64,
-  progression2Constant: 1015.13,
-  proportionalEnd: 277825,
-  proportionalOffset: 10911.92,
-  topOffset: 19246.67,
+  params: {
+    basicAllowance: 12096,
+    zone2End: 17443,
+    zone3End: 68480,
+    zone4End: 277825,
+    zone2: { a: 932.3, b: 1400 },
+    zone3: { a: 176.64, b: 2397, c: 1015.13 },
+    zone4: { rate: 0.42, sub: 10911.92 },
+    zone5: { rate: 0.45, sub: 19246.67 }
+  },
   soliThresholdSingle: 19950
 }
 
 const TARIFF_2026: TariffParameters = {
   year: 2026,
   version: '2026.1',
-  grundfreibetrag: 12348,
-  progression1End: 17799,
-  progression1Factor: 914.51,
-  progression2End: 69878,
-  progression2Factor: 173.1,
-  progression2Constant: 1034.87,
-  proportionalEnd: 277825,
-  proportionalOffset: 11135.63,
-  topOffset: 19470.38,
+  params: {
+    basicAllowance: 12348,
+    zone2End: 17799,
+    zone3End: 69878,
+    zone4End: 277825,
+    zone2: { a: 914.51, b: 1400 },
+    zone3: { a: 173.1, b: 2397, c: 1034.87 },
+    zone4: { rate: 0.42, sub: 11135.63 },
+    zone5: { rate: 0.45, sub: 19470.38 }
+  },
   soliThresholdSingle: 20350
 }
+
+/** Ascending by year. */
+const BUILT_IN: TariffParameters[] = [TARIFF_2025, TARIFF_2026]
 
 function round2(value: number): number {
   const sign = value < 0 ? -1 : 1
   const scaled = Number((Math.abs(value) * 100).toPrecision(12))
   return (sign * Math.round(scaled)) / 100
-}
-
-/** § 32a Abs. 1 EStG tariff for a full-euro income x (before Abs. 5 flooring). */
-function tariffTax(p: TariffParameters, x: number): number {
-  if (x <= p.grundfreibetrag) return 0
-  if (x <= p.progression1End) {
-    const y = (x - p.grundfreibetrag) / 10000
-    return (p.progression1Factor * y + PROGRESSION1_LINEAR) * y
-  }
-  if (x <= p.progression2End) {
-    const z = (x - p.progression1End) / 10000
-    return (
-      (p.progression2Factor * z + PROGRESSION2_LINEAR) * z +
-      p.progression2Constant
-    )
-  }
-  if (x <= p.proportionalEnd) return RATE_ZONE4 * x - p.proportionalOffset
-  return RATE_ZONE5 * x - p.topOffset
-}
-
-function marginalRatePercent(p: TariffParameters, x: number): number {
-  if (x <= p.grundfreibetrag) return 0
-  if (x <= p.progression1End) {
-    const y = (x - p.grundfreibetrag) / 10000
-    return round2((2 * p.progression1Factor * y + PROGRESSION1_LINEAR) / 100)
-  }
-  if (x <= p.progression2End) {
-    const z = (x - p.progression1End) / 10000
-    return round2((2 * p.progression2Factor * z + PROGRESSION2_LINEAR) / 100)
-  }
-  if (x <= p.proportionalEnd) return 42
-  return 45
 }
 
 function makeEngine(p: TariffParameters): IncomeTaxEngine {
@@ -149,7 +115,7 @@ function makeEngine(p: TariffParameters): IncomeTaxEngine {
       const joint = input.assessmentType === 'joint'
       // splitting: twice the tax on half the joint income (§ 32a Abs. 5)
       const tariffIncome = joint ? Math.floor(zvE / 2) : zvE
-      const perShare = Math.floor(tariffTax(p, tariffIncome))
+      const perShare = Math.floor(evaluateTariff(p.params, tariffIncome))
       const incomeTax = joint ? perShare * 2 : perShare
 
       let solidaritySurcharge = 0
@@ -177,32 +143,78 @@ function makeEngine(p: TariffParameters): IncomeTaxEngine {
         churchTax,
         total: round2(incomeTax + solidaritySurcharge + churchTax),
         engineVersion: p.version,
-        marginalRatePercent: marginalRatePercent(p, tariffIncome),
+        marginalRatePercent: round2(tariffMarginalRate(p.params, tariffIncome) * 100),
         averageRatePercent: zvE > 0 ? round2((incomeTax / zvE) * 100) : 0
       }
     }
   }
 }
 
-/** Ascending by year. */
-const ENGINES: IncomeTaxEngine[] = [makeEngine(TARIFF_2025), makeEngine(TARIFF_2026)]
+function builtInFor(year: number): TariffParameters | undefined {
+  return BUILT_IN.find((p) => p.year === year)
+}
+
+/**
+ * Soli Freigrenze for override years: exact built-in year if we ship one,
+ * otherwise the closest earlier built-in (SolzG thresholds are not part of
+ * the §32a norm text, so overrides never carry them).
+ */
+function soliThresholdFor(year: number): number {
+  const exact = builtInFor(year)
+  if (exact) return exact.soliThresholdSingle
+  let earlier: TariffParameters | undefined
+  for (const p of BUILT_IN) {
+    if (p.year < year) earlier = p
+  }
+  return (earlier ?? BUILT_IN[0]!).soliThresholdSingle
+}
+
+/** Engine for exactly this year (override preferred), or undefined. */
+function engineForYear(year: number): IncomeTaxEngine | undefined {
+  const builtIn = builtInFor(year)
+  const override = getTariffOverride(year)
+  if (override) {
+    const baseVersion = builtIn ? builtIn.version : `${year}.0`
+    return makeEngine({
+      year,
+      version: `${baseVersion}+${override.sourceLabel}`,
+      params: override.params,
+      soliThresholdSingle: soliThresholdFor(year)
+    })
+  }
+  return builtIn ? makeEngine(builtIn) : undefined
+}
 
 /** Returns the engine for a year, or the closest earlier engine marked as fallback. */
 export function getIncomeTaxEngine(year: number): {
   engine: IncomeTaxEngine
   exactYearMatch: boolean
 } {
-  const exact = ENGINES.find((e) => e.year === year)
+  const exact = engineForYear(year)
   if (exact) return { engine: exact, exactYearMatch: true }
-  let earlier: IncomeTaxEngine | undefined
-  for (const engine of ENGINES) {
-    if (engine.year < year) earlier = engine
+
+  const candidateYears = [
+    ...BUILT_IN.map((p) => p.year),
+    ...getRegisteredOverrideYears()
+  ]
+  let bestEarlier: number | undefined
+  for (const candidate of candidateYears) {
+    if (candidate < year && (bestEarlier === undefined || candidate > bestEarlier)) {
+      bestEarlier = candidate
+    }
   }
-  const fallback = earlier ?? ENGINES[0]
+  const fallbackYear = bestEarlier ?? BUILT_IN[0]?.year
+  const fallback = fallbackYear === undefined ? undefined : engineForYear(fallbackYear)
   if (!fallback) throw new Error('no income tax engines registered')
   return { engine: fallback, exactYearMatch: false }
 }
 
 export function listSupportedTaxYears(): number[] {
-  return ENGINES.map((e) => e.year)
+  return BUILT_IN.map((p) => p.year)
+}
+
+/** Built-in §32a parameters for a year (copy), or undefined when not shipped. */
+export function getBuiltInTariffParams(year: number): Section32aParams | undefined {
+  const p = builtInFor(year)
+  return p ? structuredClone(p.params) : undefined
 }

@@ -350,6 +350,18 @@ export class ImportPipeline {
       })
       issues.push(...parsed.issues)
 
+      // 6b — near-duplicate detection (different bytes, same invoice data).
+      // Warn only: the import is never blocked and nothing is deleted.
+      const possibleDuplicate = this.findPossibleDuplicate(file.direction, parsed, sha256)
+      if (possibleDuplicate) {
+        issues.push(
+          issue('possible_duplicate', 'warning', undefined, {
+            filename: possibleDuplicate.storedFilename,
+            id: possibleDuplicate.id
+          })
+        )
+      }
+
       // 7 — VAT classification
       this.stage(file, 'classifying_tax')
       const invoiceDate = parsed.invoiceDate.value
@@ -432,6 +444,14 @@ export class ImportPipeline {
         },
         source: 'system'
       })
+      if (possibleDuplicate) {
+        this.deps.repos.audit.append({
+          documentId,
+          eventType: 'possible_duplicate_detected',
+          nextValue: { documentId, existingDocumentId: possibleDuplicate.id },
+          source: 'system'
+        })
+      }
 
       // 12 — optionally remove the source (only after full success)
       if (
@@ -481,6 +501,33 @@ export class ImportPipeline {
       })
       await fail('internal_error')
     }
+  }
+
+  /**
+   * Near-duplicate lookup: an active document whose bytes differ (the sha256
+   * gate ran earlier) but whose direction, invoice date, gross amount and
+   * invoice number or counterparty match — e.g. two scans of the same
+   * invoice, or a re-downloaded receipt. Returns the oldest match, or null
+   * when the new document lacks the fields needed for a meaningful match.
+   */
+  private findPossibleDuplicate(
+    direction: DocumentDirection,
+    parsed: ExtractedInvoiceData,
+    sha256: string
+  ): TaxDocument | null {
+    const invoiceDate = parsed.invoiceDate.value
+    const grossAmount = parsed.grossAmount.value
+    if (invoiceDate === null || grossAmount === null) return null
+    const matches = this.deps.repos.documents.findPossibleDuplicates({
+      direction,
+      invoiceDate,
+      grossAmountOriginal: grossAmount,
+      invoiceNumber: parsed.invoiceNumber.value,
+      issuerName: parsed.issuerName.value,
+      recipientName: parsed.recipientName.value,
+      excludeSha256: sha256
+    })
+    return matches[0] ?? null
   }
 
   private classify(
