@@ -9,18 +9,23 @@ import { useToast } from '../context/ToastContext'
 import { usePeriod, yearOptions } from '../context/PeriodContext'
 import { ConfirmDialog } from '../components/Dialog'
 import { MoneyInput } from '../components/MoneyInput'
+import { useTour } from '../tour/TourProvider'
+import type { TourDepth } from '../tour/steps'
 
 function Row({
   label,
   desc,
-  children
+  children,
+  dataTour
 }: {
   label: string
   desc?: string
   children: ReactNode
+  /** anchor for the guided tour spotlight */
+  dataTour?: string
 }): ReactNode {
   return (
-    <div className="settings-row">
+    <div className="settings-row" data-tour={dataTour}>
       <div className="sr-text">
         <div className="sr-label">{label}</div>
         {desc ? <div className="sr-desc">{desc}</div> : null}
@@ -276,7 +281,9 @@ export function Settings(): ReactNode {
   const { settings, update } = useSettings()
   const { period } = usePeriod()
   const toast = useToast()
+  const tour = useTour()
 
+  const [tourDepth, setTourDepth] = useState<TourDepth>('minimum')
   const [restoreOpen, setRestoreOpen] = useState(false)
   const [exportYear, setExportYear] = useState(period.year)
   const [exportQuarter, setExportQuarter] = useState<1 | 2 | 3 | 4 | null>(period.quarter)
@@ -389,6 +396,21 @@ export function Settings(): ReactNode {
               onChange={(v) => patch({ moveOriginalsAfterImport: v })}
             />
           </Row>
+          <Row label={t('tour.laterTitle')} desc={t('tour.laterDesc')}>
+            <select
+              className="select"
+              aria-label={t('tour.depthLabel')}
+              value={tourDepth}
+              onChange={(e) => setTourDepth(e.target.value as TourDepth)}
+            >
+              <option value="minimum">{t('tour.optionMinimum')}</option>
+              <option value="medium">{t('tour.optionMedium')}</option>
+              <option value="full">{t('tour.optionFull')}</option>
+            </select>
+            <button type="button" className="btn" onClick={() => tour.start(tourDepth)}>
+              {t('tour.start')}
+            </button>
+          </Row>
         </div>
       </section>
 
@@ -440,7 +462,7 @@ export function Settings(): ReactNode {
         </div>
       </section>
 
-      <section className="settings-group">
+      <section className="settings-group" data-tour="settings-methods">
         <h2 className="section-title">{t('settings.groupVat')}</h2>
         <div className="card">
           <Row label={t('settings.vatMethodLabel')} desc={t(`vatMethodDesc.${settings.vatMethod}`)}>
@@ -523,7 +545,11 @@ export function Settings(): ReactNode {
       <section className="settings-group">
         <h2 className="section-title">{t('settings.groupData')}</h2>
         <div className="card">
-          <Row label={t('settings.backupCreate')} desc={t('settings.backupCreateDesc')}>
+          <Row
+            label={t('settings.backupCreate')}
+            desc={t('settings.backupCreateDesc')}
+            dataTour="settings-backup"
+          >
             <button type="button" className="btn" disabled={busy} onClick={() => void createBackup()}>
               {t('settings.backupCreate')}
             </button>

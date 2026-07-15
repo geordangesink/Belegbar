@@ -17,12 +17,7 @@ import { DirectionChip } from '../../components/StatusBits'
 import { PdfViewer } from '../../components/pdf/PdfViewer'
 import { AuditDrawer } from './AuditDrawer'
 import { effective, type Patch, type PatchKey } from './FieldRow'
-import {
-  AmountsGroup,
-  DescriptionGroup,
-  DocumentGroup,
-  PartiesGroup
-} from './ReviewFieldGroups'
+import { AmountsGroup, EssentialsGroup, MoreDetailsSection } from './ReviewFieldGroups'
 import { PaymentGroup, VatGroup } from './ReviewVatPayment'
 import { issueMessageKey } from '../../lib/api'
 
@@ -90,6 +85,17 @@ export function Review({ id }: { id: string }): ReactNode {
     () => (doc ? doc.issues.filter((i) => i.severity === 'critical') : []),
     [doc]
   )
+
+  // The invoice number is only an essential while something is off about it:
+  // an open issue or a shaky extraction. Otherwise it lives in "More details".
+  const invoiceNumberProminent = useMemo(() => {
+    if (!doc) return false
+    const hasIssue = doc.issues.some(
+      (i) => i.field === 'invoiceNumber' || i.code === 'missing_invoice_number'
+    )
+    const conf = doc.fieldConfidence.invoiceNumber
+    return hasIssue || (typeof conf === 'number' && conf < 0.85)
+  }, [doc])
 
   const filenameHint = useMemo(() => {
     if (!doc || !FILENAME_KEYS.some((k) => k in patch)) return null
@@ -219,7 +225,7 @@ export function Review({ id }: { id: string }): ReactNode {
   const groupProps = { doc, patch, setField }
 
   return (
-    <div className="review-layout">
+    <div className="review-layout" data-tour="review-split">
       <div className="review-fields">
         <div className="rf-scroll">
         <div className="row mb-16" style={{ flexWrap: 'wrap' }}>
@@ -272,12 +278,11 @@ export function Review({ id }: { id: string }): ReactNode {
           </section>
         ) : null}
 
-        <DocumentGroup {...groupProps} />
-        <PartiesGroup {...groupProps} />
-        <DescriptionGroup {...groupProps} />
+        <EssentialsGroup {...groupProps} showInvoiceNumber={invoiceNumberProminent} />
         <AmountsGroup {...groupProps} />
         <VatGroup doc={doc} onChanged={() => void refetch()} />
         <PaymentGroup doc={doc} onChanged={() => void refetch()} />
+        <MoreDetailsSection {...groupProps} showInvoiceNumber={invoiceNumberProminent} />
 
         {filenameHint ? (
           <div className="inline-note info">
@@ -306,6 +311,7 @@ export function Review({ id }: { id: string }): ReactNode {
             <button
               type="button"
               className="btn"
+              data-tour="review-recheck"
               disabled={saving}
               onClick={() =>
                 void (async () => {

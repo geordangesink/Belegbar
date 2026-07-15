@@ -180,6 +180,8 @@
     "trashTitle": "Trash",
     "deletedOn": "Deleted on {{date}}",
     "empty": "No documents for this selection. Add new documents on the Overview screen via drag and drop.",
+    "emptyFiltered": "No documents in this period.",
+    "showAllYears": "Show all years",
     "pickDateTitle": "Choose payment date",
     "selectAll": "Select all",
     "selectRow": "Select document",
@@ -253,7 +255,8 @@
     "restoredToast": "Document restored.",
     "treatmentChangedToast": "VAT treatment changed.",
     "unsavedHint": "Unsaved changes",
-    "reExtract": "Re-read document"
+    "reExtract": "Re-read document",
+    "moreDetails": "More details"
   },
   "audit": {
     "system": "System",
@@ -518,6 +521,68 @@
     "step4MoveTitle": "Move originals after import",
     "step4MoveDesc": "Recommended: after a successful import the original is moved into the Belegbar folder so nothing lies around twice.",
     "finish": "Let's go"
+  },
+  "tour": {
+    "promptTitle": "Would you like a short tour?",
+    "promptBody": "Belegbar shows you the most important places right inside the app. Press Esc to exit any time; you can restart the tour later in Settings.",
+    "optionNone": "No tour",
+    "optionNoneDesc": "Jump right in.",
+    "optionMinimum": "Mini",
+    "optionMinimumDesc": "3 stops: importing, attention, confirming.",
+    "optionMedium": "Medium",
+    "optionMediumDesc": "6 stops: plus taxes and settings.",
+    "optionFull": "Full",
+    "optionFullDesc": "10 stops: everything important, including the document view.",
+    "stepCount": "Stop {{current}} of {{total}}",
+    "exit": "Exit",
+    "done": "Done",
+    "start": "Start tour",
+    "laterTitle": "Watch the tour later",
+    "laterDesc": "Shows you the most important places in the app – at the depth of your choice.",
+    "depthLabel": "Tour depth",
+    "noDocumentNote": "No document yet – stops about the document view are skipped.",
+    "steps": {
+      "dropzones": {
+        "title": "Import documents",
+        "body": "Just drop your invoice PDFs here – income on the left, expenses on the right. Belegbar reads everything else by itself."
+      },
+      "attention": {
+        "title": "Needs your attention",
+        "body": "This is where you see what needs attention: documents to review, missing payment dates or exchange rates. One click takes you right there."
+      },
+      "confirm": {
+        "title": "Review & confirm",
+        "body": "Every document carries a status symbol: checkmarks and green rings are fine, triangles deserve a look. Use “Select” to mark e.g. all unremarkable documents and confirm them in one go."
+      },
+      "taxesVat": {
+        "title": "VAT at a glance",
+        "body": "Here you continuously see your estimated VAT payable for the selected period – including a traceable calculation."
+      },
+      "taxesIncome": {
+        "title": "Income tax estimate",
+        "body": "Belegbar estimates profit, income tax and the suggested reserve from your documents – all estimates, not tax advice."
+      },
+      "reviewSplit": {
+        "title": "The document view",
+        "body": "Recognized fields on the left, the original PDF on the right. Rarely needed fields are folded away under “More details”."
+      },
+      "reviewRecheck": {
+        "title": "Re-read & AI check",
+        "body": "“Re-read document” reads the PDF again. The optional AI check double-checks the recognized fields locally."
+      },
+      "paymentActions": {
+        "title": "Record the payment",
+        "body": "Set the payment date with one click – today, on the invoice date or freely chosen. Important for cash accounting."
+      },
+      "settingsMethods": {
+        "title": "Your tax methods",
+        "body": "Change your VAT method and filing frequency here – Belegbar recalculates immediately."
+      },
+      "settingsBackup": {
+        "title": "Backups",
+        "body": "Back up database and documents regularly as a ZIP file – everything stays local on your device."
+      }
+    }
   },
   "pdf": {
     "zoomIn": "Zoom in",

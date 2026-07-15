@@ -180,6 +180,8 @@
     "trashTitle": "Papierkorb",
     "deletedOn": "Gelöscht am {{date}}",
     "empty": "Keine Belege für diese Auswahl. Neue Belege legst du in der Übersicht per Drag-and-drop ab.",
+    "emptyFiltered": "Keine Belege in diesem Zeitraum.",
+    "showAllYears": "Alle Jahre anzeigen",
     "pickDateTitle": "Zahlungsdatum wählen",
     "selectAll": "Alle auswählen",
     "selectRow": "Beleg auswählen",
@@ -253,7 +255,8 @@
     "restoredToast": "Beleg wiederhergestellt.",
     "treatmentChangedToast": "USt.-Behandlung geändert.",
     "unsavedHint": "Ungespeicherte Änderungen",
-    "reExtract": "Beleg neu auslesen"
+    "reExtract": "Beleg neu auslesen",
+    "moreDetails": "Mehr Details"
   },
   "audit": {
     "system": "System",
@@ -518,6 +521,68 @@
     "step4MoveTitle": "Originale nach Import verschieben",
     "step4MoveDesc": "Empfohlen: Nach erfolgreichem Import wird das Original in den Belegbar-Ordner verschoben, damit nichts doppelt liegt.",
     "finish": "Los geht's"
+  },
+  "tour": {
+    "promptTitle": "Möchtest du eine kurze Tour?",
+    "promptBody": "Belegbar zeigt dir die wichtigsten Stellen direkt in der App. Du kannst jederzeit mit Esc beenden und die Tour später in den Einstellungen erneut starten.",
+    "optionNone": "Keine Tour",
+    "optionNoneDesc": "Direkt loslegen.",
+    "optionMinimum": "Mini",
+    "optionMinimumDesc": "3 Stopps: Import, Aufmerksamkeit, Bestätigen.",
+    "optionMedium": "Mittel",
+    "optionMediumDesc": "6 Stopps: zusätzlich Steuern und Einstellungen.",
+    "optionFull": "Ausführlich",
+    "optionFullDesc": "10 Stopps: alles Wichtige inklusive Belegansicht.",
+    "stepCount": "Stopp {{current}} von {{total}}",
+    "exit": "Beenden",
+    "done": "Fertig",
+    "start": "Tour starten",
+    "laterTitle": "Tour später ansehen",
+    "laterDesc": "Zeigt dir die wichtigsten Stellen der App – im Umfang deiner Wahl.",
+    "depthLabel": "Tour-Umfang",
+    "noDocumentNote": "Noch kein Beleg vorhanden – Stopps zur Belegansicht werden übersprungen.",
+    "steps": {
+      "dropzones": {
+        "title": "Belege importieren",
+        "body": "Lege deine Rechnungs-PDFs einfach hier ab – links Einnahmen, rechts Ausgaben. Belegbar liest alles Weitere selbst aus."
+      },
+      "attention": {
+        "title": "Braucht deine Aufmerksamkeit",
+        "body": "Hier siehst du, was Aufmerksamkeit braucht: zu prüfende Belege, fehlende Zahlungsdaten oder Wechselkurse. Ein Klick führt dich direkt hin."
+      },
+      "confirm": {
+        "title": "Prüfen & bestätigen",
+        "body": "Jeder Beleg trägt ein Status-Symbol: Häkchen und grüne Ringe sind in Ordnung, Dreiecke brauchen einen Blick. Über „Auswählen“ markierst du z. B. alle unauffälligen Belege und bestätigst sie gesammelt."
+      },
+      "taxesVat": {
+        "title": "Umsatzsteuer im Blick",
+        "body": "Hier siehst du laufend deine voraussichtliche USt.-Zahllast für den gewählten Zeitraum – inklusive nachvollziehbarer Berechnung."
+      },
+      "taxesIncome": {
+        "title": "Einkommensteuer-Schätzung",
+        "body": "Belegbar schätzt aus deinen Belegen Gewinn, Einkommensteuer und die empfohlene Rücklage – alles Schätzungen, keine Steuerberatung."
+      },
+      "reviewSplit": {
+        "title": "Die Belegansicht",
+        "body": "Links die erkannten Felder, rechts das PDF-Original. Selten Gebrauchtes findest du eingeklappt unter „Mehr Details“."
+      },
+      "reviewRecheck": {
+        "title": "Neu auslesen & KI-Check",
+        "body": "„Beleg neu auslesen“ liest die PDF erneut aus. Der optionale KI-Check prüft die erkannten Felder lokal ein zweites Mal."
+      },
+      "paymentActions": {
+        "title": "Zahlung festhalten",
+        "body": "Mit einem Klick setzt du das Zahlungsdatum – heute, am Rechnungsdatum oder frei gewählt. Wichtig für die Ist-Versteuerung."
+      },
+      "settingsMethods": {
+        "title": "Deine Steuermethoden",
+        "body": "USt.-Methode und Abgaberhythmus stellst du hier um – Belegbar rechnet sofort entsprechend."
+      },
+      "settingsBackup": {
+        "title": "Backups",
+        "body": "Sichere Datenbank und Belege regelmäßig als ZIP-Datei – alles bleibt lokal auf deinem Gerät."
+      }
+    }
   },
   "pdf": {
     "zoomIn": "Vergrößern",

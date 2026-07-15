@@ -1132,6 +1132,29 @@ input[type='checkbox'] {
   text-decoration: underline;
 }
 
+/* collapsed "More details" section (review screen) */
+.details-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 0;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-align: left;
+  transition: color 150ms ease;
+}
+.details-toggle:hover {
+  color: var(--text);
+}
+
 .settings-group {
   margin-bottom: 32px;
 }
@@ -1239,6 +1262,63 @@ input[type='checkbox'] {
 .option-card .oc-desc {
   font-size: 12px;
   color: var(--text-2);
+}
+
+/* ------------------------------------------------------------ guided tour */
+
+.tour-root {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  overflow: hidden;
+}
+/* spotlight: the huge shadow dims everything around the cutout */
+.tour-cutout {
+  position: absolute;
+  border-radius: 10px;
+  box-shadow: 0 0 0 200vmax rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  transition:
+    top 150ms ease,
+    left 150ms ease,
+    width 150ms ease,
+    height 150ms ease;
+}
+.tour-card {
+  position: absolute;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-overlay);
+  animation: fade-in 150ms ease;
+  transition:
+    top 150ms ease,
+    left 150ms ease;
+}
+.tour-card .tc-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.tour-card .tc-body {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.tour-card .tc-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.tour-card .tc-count {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-right: auto;
 }
 
 /* -------------------------------------------------------------- utilities */

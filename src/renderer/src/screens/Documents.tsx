@@ -100,6 +100,9 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   )
   const [docs, setDocs] = useState<TaxDocument[]>([])
   const [total, setTotal] = useState(0)
+  // Whether any documents exist at all (ignoring filters) — drives the
+  // friendlier "nothing in this period" empty state vs. the true empty state.
+  const [hasAnyDocuments, setHasAnyDocuments] = useState<boolean | null>(null)
   const [offset, setOffset] = useState(0)
   const [selection, setSelection] = useState<Set<string>>(new Set())
   const [pickDateFor, setPickDateFor] = useState<string[] | null>(null)
@@ -177,6 +180,12 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
         const result = await api().listDocuments(filter)
         setDocs((current) => (append ? [...current, ...result.documents] : result.documents))
         setTotal(result.total)
+        if (result.total > 0) {
+          setHasAnyDocuments(true)
+        } else {
+          const all = await api().listDocuments({ limit: 1 })
+          setHasAnyDocuments(all.total > 0)
+        }
       } catch (err) {
         toast.error(t(errorToKey(err)))
       }
@@ -407,58 +416,73 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
       </div>
 
       {activeDocs.length === 0 && trashedDocs.length === 0 ? (
-        <div className="card empty-state">{t('documents.empty')}</div>
+        (filters.year !== null || filters.quarter !== null) && hasAnyDocuments === true ? (
+          <div className="card empty-state">
+            <p>{t('documents.emptyFiltered')}</p>
+            <button
+              type="button"
+              className="btn mt-16"
+              onClick={() => setFilters((f) => ({ ...f, year: null, quarter: null }))}
+            >
+              {t('documents.showAllYears')}
+            </button>
+          </div>
+        ) : (
+          <div className="card empty-state">{t('documents.empty')}</div>
+        )
       ) : (
         <>
-          <div className="row small mb-8" style={{ flexWrap: 'wrap' }}>
-            {ATTENTION_LEVELS.map((level) => (
-              <button
-                key={level}
-                type="button"
-                className={`attn-chip${attentionFilter.has(level) ? ' active' : ''}`}
-                aria-pressed={attentionFilter.has(level)}
-                aria-label={`${t(`attention.label.${level}`)} (${attentionCounts[level]})`}
-                title={t(`attention.tooltip.${level}`)}
-                onClick={() => toggleAttentionFilter(level)}
+          <div data-tour="confirm-flow">
+            <div className="row small mb-8" style={{ flexWrap: 'wrap' }}>
+              {ATTENTION_LEVELS.map((level) => (
+                <button
+                  key={level}
+                  type="button"
+                  className={`attn-chip${attentionFilter.has(level) ? ' active' : ''}`}
+                  aria-pressed={attentionFilter.has(level)}
+                  aria-label={`${t(`attention.label.${level}`)} (${attentionCounts[level]})`}
+                  title={t(`attention.tooltip.${level}`)}
+                  onClick={() => toggleAttentionFilter(level)}
+                >
+                  <AttentionBadge level={level} size={12} />
+                  <span>{attentionCounts[level]}</span>
+                </button>
+              ))}
+            </div>
+            <div className="row small muted mb-16">
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  aria-label={t('documents.selectAll')}
+                  onChange={() =>
+                    setSelection(allSelected ? new Set() : new Set(shownDocs.map((d) => d.id)))
+                  }
+                />
+                {t('documents.selectAll')}
+              </label>
+              <select
+                className="select"
+                aria-label={t('documents.selectMenuLabel')}
+                value=""
+                onChange={(e) => {
+                  const choice = e.target.value as SelectMenuChoice | ''
+                  if (choice !== '') applySelectMenu(choice)
+                }}
               >
-                <AttentionBadge level={level} size={12} />
-                <span>{attentionCounts[level]}</span>
-              </button>
-            ))}
-          </div>
-          <div className="row small muted mb-16">
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                aria-label={t('documents.selectAll')}
-                onChange={() =>
-                  setSelection(allSelected ? new Set() : new Set(shownDocs.map((d) => d.id)))
-                }
-              />
-              {t('documents.selectAll')}
-            </label>
-            <select
-              className="select"
-              aria-label={t('documents.selectMenuLabel')}
-              value=""
-              onChange={(e) => {
-                const choice = e.target.value as SelectMenuChoice | ''
-                if (choice !== '') applySelectMenu(choice)
-              }}
-            >
-              <option value="" disabled>
-                {t('documents.selectMenuLabel')}
-              </option>
-              <option value="all">{t('documents.selectMenuAll')}</option>
-              <option value="ok">{t('documents.selectMenuOk')}</option>
-              <option value="minor">{t('documents.selectMenuMinor')}</option>
-              <option value="rings">{t('documents.selectMenuRings')}</option>
-              <option value="triangles">{t('documents.selectMenuTriangles')}</option>
-              <option value="none">{t('documents.selectMenuNone')}</option>
-            </select>
-            <span>·</span>
-            <span>{t('documents.total', { count: total })}</span>
+                <option value="" disabled>
+                  {t('documents.selectMenuLabel')}
+                </option>
+                <option value="all">{t('documents.selectMenuAll')}</option>
+                <option value="ok">{t('documents.selectMenuOk')}</option>
+                <option value="minor">{t('documents.selectMenuMinor')}</option>
+                <option value="rings">{t('documents.selectMenuRings')}</option>
+                <option value="triangles">{t('documents.selectMenuTriangles')}</option>
+                <option value="none">{t('documents.selectMenuNone')}</option>
+              </select>
+              <span>·</span>
+              <span>{t('documents.total', { count: total })}</span>
+            </div>
           </div>
           <div className="card doc-list">
             {shownDocs.map((doc) => (

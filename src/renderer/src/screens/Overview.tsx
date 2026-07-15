@@ -87,7 +87,7 @@ export function Overview(): ReactNode {
 
   return (
     <div className="content-inner">
-      <div className="dropzones mb-24">
+      <div className="dropzones mb-24" data-tour="dropzones">
         <DropZone direction="income" />
         <DropZone direction="expense" />
       </div>
@@ -107,11 +107,9 @@ export function Overview(): ReactNode {
               <button
                 type="button"
                 className="link-btn small"
+                style={{ color: 'var(--text-2)' }}
                 onClick={() => go({ name: 'documents', preset: { reviewStatus: 'needs_review' } })}
               >
-                <span className="status-glyph warn" aria-hidden="true">
-                  ⚠
-                </span>{' '}
                 {t('overview.provisionalNote', { count: summary.documentsNeedingReview })}
               </button>
             </div>
@@ -120,7 +118,7 @@ export function Overview(): ReactNode {
       ) : null}
 
       {attention.length > 0 ? (
-        <section className="mt-32">
+        <section className="mt-32" data-tour="attention">
           <h2 className="section-title">{t('overview.attentionTitle')}</h2>
           <div className="card">
             {attention.map((item) => (
@@ -149,7 +147,12 @@ export function Overview(): ReactNode {
         ) : (
           <div className="card doc-list">
             {recent.map((doc) => (
-              <DocumentRow key={doc.id} doc={doc} onOpen={(id) => push({ name: 'review', id })} />
+              <DocumentRow
+                key={doc.id}
+                doc={doc}
+                compact
+                onOpen={(id) => push({ name: 'review', id })}
+              />
             ))}
           </div>
         )}

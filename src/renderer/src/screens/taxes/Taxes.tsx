@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { VatTab } from './VatTab'
 import { IncomeTab } from './IncomeTab'
@@ -6,6 +6,12 @@ import { IncomeTab } from './IncomeTab'
 export function Taxes({ initialTab }: { initialTab?: 'vat' | 'income' }): ReactNode {
   const { t } = useTranslation()
   const [tab, setTab] = useState<'vat' | 'income'>(initialTab ?? 'vat')
+
+  // Route-driven tab changes (e.g. the tour navigating between tabs) must win
+  // even when the component instance is reused.
+  useEffect(() => {
+    if (initialTab) setTab(initialTab)
+  }, [initialTab])
 
   return (
     <div className="content-inner">

@@ -40,25 +40,43 @@ export async function copyAndVerify(
  * copy+verify+unlink across devices. The source is only removed after the
  * destination verifiably exists. Fails if dest already exists.
  */
+/**
+ * Moves src into dest WITHOUT ever clobbering an existing file, atomically
+ * even under concurrency. A plain access()+rename() has a TOCTOU window in
+ * which two concurrent imports generating the same filename overwrite each
+ * other (rename replaces existing files on POSIX) — link()/COPYFILE_EXCL
+ * fail with EEXIST instead. Throws Error('destination_exists') on collision.
+ */
 export async function atomicMove(src: string, dest: string): Promise<void> {
   await fsp.mkdir(path.dirname(dest), { recursive: true })
-  // refuse to clobber
   try {
-    await fsp.access(dest)
-    throw new Error('destination_exists')
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
-  }
-  try {
-    await fsp.rename(src, dest)
+    // hardlink is atomic and refuses existing destinations
+    await fsp.link(src, dest)
+    await fsp.rm(src, { force: true })
     return
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code
-    if (code !== 'EXDEV') throw err
+    if (code === 'EEXIST') throw new Error('destination_exists')
+    // fall through for filesystems without hardlinks / cross-device moves
+    if (code !== 'EXDEV' && code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'EACCES') {
+      throw err
+    }
   }
-  // cross-device: copy, verify byte size, then delete source
+  // exclusive copy: also refuses existing destinations atomically
+  try {
+    await fsp.copyFile(src, dest, fs.constants.COPYFILE_EXCL)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new Error('destination_exists')
+    }
+    throw err
+  }
   const srcHash = await sha256File(src)
-  await copyAndVerify(src, dest, srcHash)
+  const destHash = await sha256File(dest)
+  if (srcHash !== destHash) {
+    await fsp.rm(dest, { force: true })
+    throw new Error('copy_verification_failed')
+  }
   await fsp.rm(src, { force: true })
 }
 

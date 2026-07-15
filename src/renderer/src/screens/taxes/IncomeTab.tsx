@@ -76,7 +76,7 @@ export function IncomeTab(): ReactNode {
         <span className="chip chip-neutral">{t('taxes.estimateBadge')}</span>
       </div>
 
-      <div className="card" style={{ padding: '8px 20px' }}>
+      <div className="card" style={{ padding: '8px 20px' }} data-tour="taxes-income">
         <table className="calc-table">
           <tbody>
             {rows.map((row) => (

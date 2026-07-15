@@ -4,6 +4,7 @@ import { useRouter, type RouteName } from '../context/RouterContext'
 import { PeriodSelector } from '../components/PeriodSelector'
 import { Icon, type IconName } from '../components/Icon'
 import { ImportPanel } from '../components/ImportPanel'
+import { TourProvider } from '../tour/TourProvider'
 import { Overview } from '../screens/Overview'
 import { Documents } from '../screens/Documents'
 import { Review } from '../screens/review/Review'
@@ -40,71 +41,73 @@ export function Shell(): ReactNode {
   })()
 
   return (
-    <div className="shell">
-      <nav className="sidebar" aria-label={t('app.name')}>
-        <div className="wordmark">
-          <svg
-            className="wordmark-glyph"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            aria-hidden="true"
-          >
-            {/* triangle sandwich from the top-front — mirrors build/icon.svg */}
-            <path d="M4.5 12.2 12 5.8l7.5 6.4H4.5Z" fill="currentColor" />
-            <rect x="3.4" y="13.7" width="17.2" height="1.9" fill="currentColor" />
-            <rect x="6.3" y="16.4" width="11.4" height="1.9" fill="currentColor" />
-            <rect x="3.4" y="19.1" width="17.2" height="1.9" fill="currentColor" />
-          </svg>
-          Beleg<span>bar</span>
-        </div>
-        {NAV.map((item) => {
-          const active =
-            route.name === item.name || (item.name === 'documents' && route.name === 'review')
-          return (
-            <button
-              key={item.name}
-              type="button"
-              className={`nav-item${active ? ' active' : ''}`}
-              aria-current={active ? 'page' : undefined}
-              onClick={() => go({ name: item.name })}
+    <TourProvider>
+      <div className="shell">
+        <nav className="sidebar" aria-label={t('app.name')}>
+          <div className="wordmark">
+            <svg
+              className="wordmark-glyph"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden="true"
             >
-              <Icon name={item.icon} />
-              {t(`nav.${item.name}`)}
-            </button>
-          )
-        })}
-      </nav>
-      <div className="main-col">
-        <header className="topbar">
-          <PeriodSelector />
-          <span className="spacer" />
-          <form
-            role="search"
-            onSubmit={(e) => {
-              e.preventDefault()
-              const query = search.trim()
-              go({ name: 'documents', preset: query === '' ? undefined : { search: query } })
-              setSearch('')
-            }}
-          >
-            <input
-              className="input"
-              type="search"
-              style={{ width: 220 }}
-              placeholder={t('search.placeholder')}
-              aria-label={t('search.aria')}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </form>
-        </header>
-        <main className="content" style={isReview ? { padding: 0, overflow: 'hidden' } : undefined}>
-          {content}
-        </main>
+              {/* triangle sandwich from the top-front — mirrors build/icon.svg */}
+              <path d="M4.5 12.2 12 5.8l7.5 6.4H4.5Z" fill="currentColor" />
+              <rect x="3.4" y="13.7" width="17.2" height="1.9" fill="currentColor" />
+              <rect x="6.3" y="16.4" width="11.4" height="1.9" fill="currentColor" />
+              <rect x="3.4" y="19.1" width="17.2" height="1.9" fill="currentColor" />
+            </svg>
+            Beleg<span>bar</span>
+          </div>
+          {NAV.map((item) => {
+            const active =
+              route.name === item.name || (item.name === 'documents' && route.name === 'review')
+            return (
+              <button
+                key={item.name}
+                type="button"
+                className={`nav-item${active ? ' active' : ''}`}
+                aria-current={active ? 'page' : undefined}
+                onClick={() => go({ name: item.name })}
+              >
+                <Icon name={item.icon} />
+                {t(`nav.${item.name}`)}
+              </button>
+            )
+          })}
+        </nav>
+        <div className="main-col">
+          <header className="topbar">
+            <PeriodSelector />
+            <span className="spacer" />
+            <form
+              role="search"
+              onSubmit={(e) => {
+                e.preventDefault()
+                const query = search.trim()
+                go({ name: 'documents', preset: query === '' ? undefined : { search: query } })
+                setSearch('')
+              }}
+            >
+              <input
+                className="input"
+                type="search"
+                style={{ width: 220 }}
+                placeholder={t('search.placeholder')}
+                aria-label={t('search.aria')}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </form>
+          </header>
+          <main className="content" style={isReview ? { padding: 0, overflow: 'hidden' } : undefined}>
+            {content}
+          </main>
+        </div>
+        <ImportPanel />
       </div>
-      <ImportPanel />
-    </div>
+    </TourProvider>
   )
 }

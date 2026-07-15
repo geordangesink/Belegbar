@@ -218,7 +218,7 @@ export function PaymentGroup({
             {doc.paymentDate ? ` · ${formatIsoDate(doc.paymentDate, lang)}` : ''}
           </span>
         </div>
-        <div className="row" style={{ flexWrap: 'wrap' }}>
+        <div className="row" style={{ flexWrap: 'wrap' }} data-tour="payment-actions">
           <button type="button" className="btn btn-sm" onClick={() => void setPayment('date', todayIso())}>
             {t('review.paymentQuickToday')}
           </button>

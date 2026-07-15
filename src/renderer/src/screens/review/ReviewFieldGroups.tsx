@@ -1,9 +1,10 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TaxDocument } from '@shared/domain'
 import { activeLanguage } from '../../i18n'
 import { formatEur, formatNumber, round2 } from '../../lib/format'
 import { MoneyInput } from '../../components/MoneyInput'
+import { Icon } from '../../components/Icon'
 import { FieldRow, effective, type Patch, type PatchKey } from './FieldRow'
 
 export interface GroupProps {
@@ -68,30 +69,73 @@ function DateField({
   )
 }
 
-export function DocumentGroup(props: GroupProps): ReactNode {
+/**
+ * The essentials the user is directly faced with: invoice date, the
+ * counterparty that matters for the direction, the invoice number (only while
+ * it is flagged or uncertain) and the description. Everything else lives in
+ * the collapsed "More details" section below.
+ */
+export function EssentialsGroup(
+  props: GroupProps & { showInvoiceNumber: boolean }
+): ReactNode {
   const { t } = useTranslation()
+  const { doc, patch, setField, showInvoiceNumber } = props
+  const income = doc.direction === 'income'
+  const description = effective(doc, patch, 'description')
   return (
     <section className="field-group">
       <h2 className="section-title">{t('review.groupDocument')}</h2>
-      <TextField {...props} fieldKey="invoiceNumber" label={t('review.invoiceNumber')} />
       <DateField {...props} fieldKey="invoiceDate" label={t('review.invoiceDate')} />
-      <DateField {...props} fieldKey="serviceDateFrom" label={t('review.servicePeriodFrom')} />
-      <DateField {...props} fieldKey="serviceDateTo" label={t('review.servicePeriodTo')} />
-      <DateField {...props} fieldKey="dueDate" label={t('review.dueDate')} />
+      {income ? (
+        <TextField {...props} fieldKey="recipientName" label={t('review.recipientName')} />
+      ) : (
+        <TextField {...props} fieldKey="issuerName" label={t('review.issuerName')} />
+      )}
+      {showInvoiceNumber ? (
+        <TextField {...props} fieldKey="invoiceNumber" label={t('review.invoiceNumber')} />
+      ) : null}
+      <FieldRow label={t('review.description')} doc={doc} patch={patch} fieldKey="description">
+        <textarea
+          id="field-description"
+          className="textarea"
+          rows={2}
+          value={typeof description === 'string' ? description : ''}
+          onChange={(e) => setField('description', e.target.value === '' ? null : e.target.value)}
+        />
+      </FieldRow>
     </section>
   )
 }
 
-export function PartiesGroup(props: GroupProps): ReactNode {
+// Expander state survives switching documents within a session
+// (module-level memory; intentionally reset only by an app restart).
+const detailsMemory = { open: false }
+
+/**
+ * Single collapsed "More details" section: invoice number (while not flagged),
+ * service period, due date, the user's own side of the parties, VAT IDs,
+ * country codes, business-status select and category. Nothing is removed —
+ * only foldered.
+ */
+export function MoreDetailsSection(
+  props: GroupProps & { showInvoiceNumber: boolean }
+): ReactNode {
   const { t } = useTranslation()
-  const { doc, patch, setField } = props
+  const { doc, patch, setField, showInvoiceNumber } = props
+  const [open, setOpen] = useState(detailsMemory.open)
   const business = effective(doc, patch, 'recipientIsBusiness')
   const upper = (s: string): string => s.toUpperCase()
-  const emphasized = doc.direction === 'income' ? 'recipient' : 'issuer'
+  const income = doc.direction === 'income'
 
-  const issuerFields = (
+  const toggle = (): void =>
+    setOpen((v) => {
+      detailsMemory.open = !v
+      return !v
+    })
+
+  const issuerName = <TextField {...props} fieldKey="issuerName" label={t('review.issuerName')} />
+  const issuerExtras = (
     <>
-      <TextField {...props} fieldKey="issuerName" label={t('review.issuerName')} />
       <TextField
         {...props}
         fieldKey="issuerCountryCode"
@@ -102,9 +146,11 @@ export function PartiesGroup(props: GroupProps): ReactNode {
       <TextField {...props} fieldKey="issuerVatId" label={t('review.issuerVatId')} transform={upper} />
     </>
   )
-  const recipientFields = (
+  const recipientName = (
+    <TextField {...props} fieldKey="recipientName" label={t('review.recipientName')} />
+  )
+  const recipientExtras = (
     <>
-      <TextField {...props} fieldKey="recipientName" label={t('review.recipientName')} />
       <TextField
         {...props}
         fieldKey="recipientCountryCode"
@@ -145,42 +191,47 @@ export function PartiesGroup(props: GroupProps): ReactNode {
 
   return (
     <section className="field-group">
-      <h2 className="section-title">{t('review.groupParties')}</h2>
-      <p className="small muted" style={{ marginBottom: 10 }}>
-        {t('review.counterpartyHint', { direction: t(`direction.${doc.direction}`) })}
-      </p>
-      {emphasized === 'recipient' ? (
-        <>
-          {recipientFields}
-          <div style={{ opacity: 0.75 }}>{issuerFields}</div>
-        </>
-      ) : (
-        <>
-          {issuerFields}
-          <div style={{ opacity: 0.75 }}>{recipientFields}</div>
-        </>
-      )}
-    </section>
-  )
-}
+      <button type="button" className="details-toggle" aria-expanded={open} onClick={toggle}>
+        <Icon name={open ? 'chevron-down' : 'chevron-right'} size={13} />
+        {t('review.moreDetails')}
+      </button>
+      {open ? (
+        <div className="mt-8">
+          {!showInvoiceNumber ? (
+            <TextField {...props} fieldKey="invoiceNumber" label={t('review.invoiceNumber')} />
+          ) : null}
+          <DateField {...props} fieldKey="serviceDateFrom" label={t('review.servicePeriodFrom')} />
+          <DateField {...props} fieldKey="serviceDateTo" label={t('review.servicePeriodTo')} />
+          <DateField {...props} fieldKey="dueDate" label={t('review.dueDate')} />
 
-export function DescriptionGroup(props: GroupProps): ReactNode {
-  const { t } = useTranslation()
-  const { doc, patch, setField } = props
-  const description = effective(doc, patch, 'description')
-  return (
-    <section className="field-group">
-      <h2 className="section-title">{t('review.groupDescription')}</h2>
-      <FieldRow label={t('review.description')} doc={doc} patch={patch} fieldKey="description">
-        <textarea
-          id="field-description"
-          className="textarea"
-          rows={2}
-          value={typeof description === 'string' ? description : ''}
-          onChange={(e) => setField('description', e.target.value === '' ? null : e.target.value)}
-        />
-      </FieldRow>
-      <TextField {...props} fieldKey="expenseCategory" label={t('review.category')} />
+          <h3 className="section-title mt-16">{t('review.groupParties')}</h3>
+          <p className="small muted" style={{ marginBottom: 10 }}>
+            {t('review.counterpartyHint', { direction: t(`direction.${doc.direction}`) })}
+          </p>
+          {income ? (
+            <>
+              {/* counterparty (recipient) name is up in the essentials */}
+              {recipientExtras}
+              <div style={{ opacity: 0.75 }}>
+                {issuerName}
+                {issuerExtras}
+              </div>
+            </>
+          ) : (
+            <>
+              {/* counterparty (issuer) name is up in the essentials */}
+              {issuerExtras}
+              <div style={{ opacity: 0.75 }}>
+                {recipientName}
+                {recipientExtras}
+              </div>
+            </>
+          )}
+
+          <h3 className="section-title mt-16">{t('review.groupDescription')}</h3>
+          <TextField {...props} fieldKey="expenseCategory" label={t('review.category')} />
+        </div>
+      ) : null}
     </section>
   )
 }

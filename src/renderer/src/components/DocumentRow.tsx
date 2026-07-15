@@ -18,7 +18,8 @@ export function DocumentRow({
   selectable,
   selected,
   onToggleSelect,
-  trailing
+  trailing,
+  compact
 }: {
   doc: TaxDocument
   onOpen: (id: string) => void
@@ -26,6 +27,8 @@ export function DocumentRow({
   selected?: boolean
   onToggleSelect?: (id: string) => void
   trailing?: ReactNode
+  /** quiet variant (overview): badge + company + date + amount only; VAT treatment moves to the hover title */
+  compact?: boolean
 }): ReactNode {
   const { t } = useTranslation()
   const lang = activeLanguage()
@@ -47,6 +50,7 @@ export function DocumentRow({
       className={`doc-row${doc.deletedAt ? ' deleted' : ''}`}
       role="button"
       tabIndex={0}
+      title={compact ? (treatment ?? undefined) : undefined}
       onClick={() => onOpen(doc.id)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' && e.target === e.currentTarget) onOpen(doc.id)
@@ -66,11 +70,14 @@ export function DocumentRow({
       <div className="doc-main">
         <div className="doc-name">{company}</div>
         <div className="doc-sub">
-          {[
-            doc.invoiceDate ? formatIsoDate(doc.invoiceDate, lang) : '—',
-            treatment,
-            t(`attention.label.${attention}`)
-          ]
+          {(compact
+            ? [doc.invoiceDate ? formatIsoDate(doc.invoiceDate, lang) : '—']
+            : [
+                doc.invoiceDate ? formatIsoDate(doc.invoiceDate, lang) : '—',
+                treatment,
+                t(`attention.label.${attention}`)
+              ]
+          )
             .filter(Boolean)
             .join(' · ')}
         </div>

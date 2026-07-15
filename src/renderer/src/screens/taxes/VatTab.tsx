@@ -168,7 +168,7 @@ export function VatTab(): ReactNode {
         <span className="chip chip-neutral">{t('taxes.estimateBadge')}</span>
       </div>
 
-      <div className="card" style={{ padding: 24 }}>
+      <div className="card" style={{ padding: 24 }} data-tour="taxes-vat">
         <div className="section-title">
           {refund ? t('taxes.vatResultRefund') : t('taxes.vatResultPayable')}
         </div>

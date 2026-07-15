@@ -938,7 +938,18 @@ export class ImportPipeline {
         })
         continue
       }
-      await atomicMove(tmpPath, absolutePath)
+      try {
+        await atomicMove(tmpPath, absolutePath)
+      } catch (err) {
+        // a concurrent import claimed the same name between our access()
+        // check and the move — atomicMove is exclusive, so nothing was
+        // clobbered; take the next collision suffix
+        if (err instanceof Error && err.message === 'destination_exists') {
+          this.deps.log.info('filename_collision', { attempt, sameContent: false })
+          continue
+        }
+        throw err
+      }
       return {
         filename,
         relativePath: toPosixRelative(relDir, filename),
