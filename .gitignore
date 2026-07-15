@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+release/
+*.tsbuildinfo
+
+# Confidential example documents (real personal/financial data — never commit)
+example/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs / env
+*.log
+.env
+.env.*
+
+# Test artifacts
+coverage/
+playwright-report/
+test-results/
+e2e/.tmp/
+
+# Local app data created during dev runs
+.dev-appdata/
