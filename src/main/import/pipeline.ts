@@ -130,6 +130,214 @@ export class ImportPipeline {
     return { importId, accepted, rejected }
   }
 
+  /**
+   * Re-run extraction, parsing and classification on already-stored
+   * documents (e.g. after a parser upgrade). Rules:
+   *  - confirmed and deleted documents are skipped entirely
+   *  - fields the user corrected manually are never overwritten
+   *  - a manual VAT treatment override stays in place
+   *  - a manually entered exchange rate stays in place
+   *  - payment state is always preserved (it never comes from the PDF)
+   *  - stored files are not renamed or moved
+   */
+  async reExtract(ids: string[]): Promise<{ updated: number; skipped: number }> {
+    let updated = 0
+    let skipped = 0
+    for (const id of ids) {
+      try {
+        const changed = await this.reExtractOne(id)
+        if (changed) updated++
+        else skipped++
+      } catch (err) {
+        skipped++
+        this.deps.log.warn('re_extraction_failed', {
+          documentId: id,
+          name: err instanceof Error ? err.message : typeof err
+        })
+      }
+    }
+    return { updated, skipped }
+  }
+
+  private async reExtractOne(id: string): Promise<boolean> {
+    const doc = this.deps.repos.documents.getById(id)
+    if (!doc || doc.deletedAt !== null || doc.reviewStatus === 'confirmed') return false
+
+    const absPath = resolveInside(this.deps.dataDir, ...doc.storedRelativePath.split('/'))
+    const text = await this.deps.extraction.extractDocumentText(absPath, doc.sha256, () => {})
+
+    const settings = this.deps.repos.settings.get()
+    const parsed = parseInvoiceText(text.fullText, {
+      direction: doc.direction,
+      ownName: settings.businessName || undefined,
+      ownVatId: settings.businessVatId || undefined,
+      ocrUsed: text.ocrUsed,
+      ocrPages: text.ocrPages
+    })
+
+    const issues: DocumentIssue[] = []
+    const pagesNeedingOcr = text.ocrPages.length + text.ocrFailedPages.length
+    if (pagesNeedingOcr > 0 && text.ocrPages.length === 0) {
+      issues.push(issue('ocr_failed', 'critical'))
+    } else if (text.ocrFailedPages.length > 0) {
+      issues.push(issue('ocr_partial', 'warning'))
+    }
+    issues.push(...parsed.issues)
+
+    const possibleDuplicate = this.findPossibleDuplicate(doc.direction, parsed, doc.sha256)
+    if (possibleDuplicate) {
+      issues.push(
+        issue('possible_duplicate', 'warning', undefined, {
+          filename: possibleDuplicate.storedFilename,
+          id: possibleDuplicate.id
+        })
+      )
+    }
+
+    // fields the user corrected by hand stay authoritative
+    const corrected = new Set<string>()
+    for (const event of this.deps.repos.audit.listByDocument(id)) {
+      if (event.eventType === 'manual_correction' && event.source === 'user') {
+        const field = (event.nextValue as { field?: string } | null)?.field
+        if (field) corrected.add(field)
+      }
+    }
+
+    const invoiceDate = corrected.has('invoiceDate')
+      ? doc.invoiceDate
+      : parsed.invoiceDate.value
+    const period = invoiceDate ? periodOfIsoDate(invoiceDate) : null
+
+    const take = <K extends keyof TaxDocument, V>(field: K, parsedValue: V): V | TaxDocument[K] =>
+      corrected.has(field) ? doc[field] : parsedValue
+
+    const next: TaxDocument = {
+      ...doc,
+      pageCount: text.pageCount,
+      invoiceNumber: take('invoiceNumber', parsed.invoiceNumber.value),
+      invoiceDate,
+      serviceDateFrom: take('serviceDateFrom', parsed.serviceDateFrom.value),
+      serviceDateTo: take('serviceDateTo', parsed.serviceDateTo.value),
+      dueDate: take('dueDate', parsed.dueDate.value),
+      issuerName: take('issuerName', parsed.issuerName.value),
+      issuerAddress: take('issuerAddress', parsed.issuerAddress.value),
+      issuerCountryCode: take('issuerCountryCode', parsed.issuerCountryCode.value),
+      issuerTaxNumber: take('issuerTaxNumber', parsed.issuerTaxNumber.value),
+      issuerVatId: take('issuerVatId', parsed.issuerVatId.value),
+      recipientName: take('recipientName', parsed.recipientName.value),
+      recipientAddress: take('recipientAddress', parsed.recipientAddress.value),
+      recipientCountryCode: take('recipientCountryCode', parsed.recipientCountryCode.value),
+      recipientVatId: take('recipientVatId', parsed.recipientVatId.value),
+      recipientIsBusiness: take('recipientIsBusiness', parsed.recipientIsBusiness.value),
+      description: take('description', parsed.description.value),
+      originalCurrency: take('originalCurrency', parsed.currency.value),
+      netAmountOriginal: take('netAmountOriginal', parsed.netAmount.value),
+      vatAmountOriginal: take('vatAmountOriginal', parsed.vatAmount.value),
+      grossAmountOriginal: take('grossAmountOriginal', parsed.grossAmount.value),
+      vatRates: parsed.vatRates,
+      taxPeriodYear: period?.year ?? null,
+      taxPeriodQuarter: period?.quarter ?? null,
+      taxPeriodMonth: period?.month ?? null,
+      extractedText: text.fullText,
+      extractionProvider: 'local-parser',
+      extractionVersion: PARSER_VERSION,
+      updatedAt: new Date().toISOString()
+    }
+
+    // currency: a manually entered rate is kept, everything else re-resolves
+    if (doc.exchangeRateSource === 'manual' && doc.exchangeRateToEur !== null) {
+      next.netAmountEur =
+        next.netAmountOriginal !== null && next.originalCurrency !== 'EUR'
+          ? convertToEur(next.netAmountOriginal, {
+              currency: next.originalCurrency ?? '',
+              date: doc.exchangeRateDate ?? '',
+              rateToEur: doc.exchangeRateToEur,
+              source: 'manual'
+            })
+          : next.netAmountOriginal
+      next.vatAmountEur =
+        next.vatAmountOriginal !== null && next.originalCurrency !== 'EUR'
+          ? convertToEur(next.vatAmountOriginal, {
+              currency: next.originalCurrency ?? '',
+              date: doc.exchangeRateDate ?? '',
+              rateToEur: doc.exchangeRateToEur,
+              source: 'manual'
+            })
+          : next.vatAmountOriginal
+      next.grossAmountEur =
+        next.grossAmountOriginal !== null && next.originalCurrency !== 'EUR'
+          ? convertToEur(next.grossAmountOriginal, {
+              currency: next.originalCurrency ?? '',
+              date: doc.exchangeRateDate ?? '',
+              rateToEur: doc.exchangeRateToEur,
+              source: 'manual'
+            })
+          : next.grossAmountOriginal
+    } else {
+      const currencyResult = await this.resolveCurrency(parsed, text.fullText, invoiceDate)
+      issues.push(...currencyResult.issues)
+      next.exchangeRateToEur = currencyResult.rate?.rateToEur ?? null
+      next.exchangeRateDate = currencyResult.rate?.date ?? null
+      next.exchangeRateSource = currencyResult.rate?.source ?? null
+      next.netAmountEur = currencyResult.netEur
+      next.vatAmountEur = currencyResult.vatEur
+      next.grossAmountEur = currencyResult.grossEur
+    }
+
+    // classification: manual override wins, otherwise re-run the engine
+    const stored = doc.extractionRawJson as
+      | { vatClassification?: { manualOverride?: boolean } }
+      | null
+    const hasManualOverride = stored?.vatClassification?.manualOverride === true
+    let classification: VatClassificationResult | undefined
+    if (!hasManualOverride) {
+      classification = this.classify(doc.direction, parsed, settings, invoiceDate)
+      next.vatTreatmentCode = classification.code
+      next.vatTreatmentLabel = classification.labelDe
+      next.vatLegalBasis = classification.legalBasis
+    }
+
+    const fieldConfidence: Record<string, number> = {}
+    for (const [key, field] of Object.entries(parsed)) {
+      if (
+        field !== null &&
+        typeof field === 'object' &&
+        'confidence' in (field as Record<string, unknown>)
+      ) {
+        fieldConfidence[key] = (field as { confidence: number }).confidence
+      }
+    }
+    // user-corrected fields display as manual, not as parser output
+    for (const field of corrected) delete fieldConfidence[field]
+    next.fieldConfidence = fieldConfidence
+    const { extractedText: _omit, ...rawParsed } = parsed
+    next.extractionRawJson = rawParsed
+    next.issues = issues
+    next.reviewReasons = [...new Set(issues.map((i) => i.code))]
+    next.reviewStatus = 'needs_review'
+    next.userConfirmedAt = null
+
+    const changedFields = (Object.keys(next) as (keyof TaxDocument)[]).filter(
+      (k) =>
+        k !== 'updatedAt' &&
+        k !== 'extractionRawJson' &&
+        k !== 'fieldConfidence' &&
+        JSON.stringify(next[k]) !== JSON.stringify(doc[k])
+    )
+    this.deps.repos.documents.update(next, classification)
+    this.deps.repos.audit.append({
+      documentId: id,
+      eventType: 're_extraction',
+      previousValue: { extractionVersion: doc.extractionVersion },
+      nextValue: {
+        extractionVersion: PARSER_VERSION,
+        changedFields: changedFields.slice(0, 40)
+      },
+      source: 'user'
+    })
+    return changedFields.length > 0
+  }
+
   async retry(fileId: string): Promise<void> {
     const row = this.deps.repos.importJobs.get(fileId)
     if (!row) throw new Error('not_found')

@@ -22,6 +22,7 @@ export const IPC = {
   setPaymentDate: 'belegbar:set-payment-date',
   setDirection: 'belegbar:set-direction',
   setVatTreatment: 'belegbar:set-vat-treatment',
+  reExtractDocuments: 'belegbar:re-extract-documents',
   deleteDocument: 'belegbar:delete-document',
   restoreDocument: 'belegbar:restore-document',
   getDocumentPdf: 'belegbar:get-document-pdf',
@@ -172,6 +173,10 @@ export type UpdateSettingsPayload = z.infer<typeof updateSettingsSchema>
 export const exportPeriodSchema = z.object({
   period: periodSchema,
   format: z.enum(['csv', 'json', 'zip', 'summary'])
+})
+
+export const reExtractSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(500)
 })
 
 export const deleteDocumentSchema = z.object({

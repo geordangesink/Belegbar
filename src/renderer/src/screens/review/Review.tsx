@@ -244,6 +244,32 @@ export function Review({ id }: { id: string }): ReactNode {
           <button type="button" className="btn" onClick={() => setHistoryOpen(true)}>
             <Icon name="history" size={14} /> {t('review.history')}
           </button>
+          {doc.reviewStatus !== 'confirmed' ? (
+            <button
+              type="button"
+              className="btn"
+              disabled={saving}
+              onClick={() =>
+                void (async () => {
+                  try {
+                    const res = await api().reExtractDocuments([doc.id])
+                    toast.success(
+                      t('documents.reExtractDone', {
+                        updated: res.updated,
+                        skipped: res.skipped
+                      })
+                    )
+                    emitDataChanged()
+                    await refetch()
+                  } catch (err) {
+                    toast.error(t(errorToKey(err)))
+                  }
+                })()
+              }
+            >
+              {t('review.reExtract')}
+            </button>
+          ) : null}
           {doc.deletedAt === null ? (
             <button type="button" className="btn btn-danger" onClick={() => setDeleteOpen(true)}>
               <Icon name="trash" size={14} /> {t('common.delete')}

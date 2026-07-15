@@ -39,6 +39,7 @@ const api: BelegbarApi = {
   setPaymentDate: (payload) => ipcRenderer.invoke(IPC.setPaymentDate, payload),
   setDirection: (payload) => ipcRenderer.invoke(IPC.setDirection, payload),
   setVatTreatment: (payload) => ipcRenderer.invoke(IPC.setVatTreatment, payload),
+  reExtractDocuments: (ids) => ipcRenderer.invoke(IPC.reExtractDocuments, { ids }),
   deleteDocument: (id, mode) =>
     ipcRenderer.invoke(IPC.deleteDocument, { id, mode: mode ?? 'trash' }),
   restoreDocument: (id) => ipcRenderer.invoke(IPC.restoreDocument, { id }),

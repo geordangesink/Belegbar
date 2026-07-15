@@ -158,7 +158,9 @@
     "selectAll": "Select all",
     "selectRow": "Select document",
     "total": "{{count}} documents",
-    "total_one": "1 document"
+    "total_one": "1 document",
+    "bulkReExtract": "Re-read",
+    "reExtractDone": "Re-read finished: {{updated}} updated, {{skipped}} unchanged or skipped."
   },
   "review": {
     "backToList": "Back",
@@ -223,7 +225,8 @@
     "deletedToast": "Document moved to trash.",
     "restoredToast": "Document restored.",
     "treatmentChangedToast": "VAT treatment changed.",
-    "unsavedHint": "Unsaved changes"
+    "unsavedHint": "Unsaved changes",
+    "reExtract": "Re-read document"
   },
   "audit": {
     "system": "System",

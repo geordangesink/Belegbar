@@ -158,7 +158,9 @@
     "selectAll": "Alle auswählen",
     "selectRow": "Beleg auswählen",
     "total": "{{count}} Belege",
-    "total_one": "1 Beleg"
+    "total_one": "1 Beleg",
+    "bulkReExtract": "Neu auslesen",
+    "reExtractDone": "Neu ausgelesen: {{updated}} aktualisiert, {{skipped}} unverändert oder übersprungen."
   },
   "review": {
     "backToList": "Zurück",
@@ -223,7 +225,8 @@
     "deletedToast": "Beleg in den Papierkorb verschoben.",
     "restoredToast": "Beleg wiederhergestellt.",
     "treatmentChangedToast": "USt.-Behandlung geändert.",
-    "unsavedHint": "Ungespeicherte Änderungen"
+    "unsavedHint": "Ungespeicherte Änderungen",
+    "reExtract": "Beleg neu auslesen"
   },
   "audit": {
     "system": "System",

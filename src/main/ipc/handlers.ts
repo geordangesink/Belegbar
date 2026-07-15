@@ -14,6 +14,7 @@ import {
   importFilesSchema,
   listDocumentsSchema,
   periodSchema,
+  reExtractSchema,
   setDirectionSchema,
   setPaymentDateSchema,
   setVatTreatmentSchema,
@@ -117,6 +118,7 @@ export function registerIpcHandlers(ctx: HandlerContext): void {
   handle(IPC.setVatTreatment, setVatTreatmentSchema, (p) =>
     ctx.documents.setVatTreatment(p.id, p.code, p.reason)
   )
+  handle(IPC.reExtractDocuments, reExtractSchema, (p) => ctx.pipeline.reExtract(p.ids))
   handle(IPC.deleteDocument, deleteDocumentSchema, (p) => ctx.documents.delete(p.id, p.mode))
   handle(IPC.restoreDocument, documentIdSchema, (p) => ctx.documents.restore(p.id))
 

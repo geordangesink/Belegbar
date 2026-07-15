@@ -39,6 +39,13 @@ function needsExchangeRate(doc: TaxDocument): boolean {
   )
 }
 
+// Filters survive navigating into a document and back (module-level memory;
+// intentionally reset only by a new preset or app restart).
+const filterMemory: { filters: Filters | null; search: string } = {
+  filters: null,
+  search: ''
+}
+
 export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   const { t } = useTranslation()
   const lang = activeLanguage()
@@ -48,16 +55,20 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   const toast = useToast()
   const dataVersion = useDataVersion()
 
-  const [filters, setFilters] = useState<Filters>({
-    search: preset?.search ?? '',
-    year: periodYear,
-    quarter: periodQuarter,
-    direction: preset?.direction ?? '',
-    reviewStatus: preset?.reviewStatus ?? '',
-    vatTreatmentCode: '',
-    includeDeleted: false,
-    clientFilter: preset?.clientFilter ?? null
-  })
+  const [filters, setFilters] = useState<Filters>(() =>
+    !preset && filterMemory.filters
+      ? filterMemory.filters
+      : {
+          search: preset?.search ?? '',
+          year: periodYear,
+          quarter: periodQuarter,
+          direction: preset?.direction ?? '',
+          reviewStatus: preset?.reviewStatus ?? '',
+          vatTreatmentCode: '',
+          includeDeleted: false,
+          clientFilter: preset?.clientFilter ?? null
+        }
+  )
   const [docs, setDocs] = useState<TaxDocument[]>([])
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
@@ -66,7 +77,14 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   const [pickedDate, setPickedDate] = useState(todayIso())
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[] | null>(null)
 
-  const [searchText, setSearchText] = useState(preset?.search ?? '')
+  const [searchText, setSearchText] = useState(
+    !preset && filterMemory.filters ? filterMemory.search : (preset?.search ?? '')
+  )
+
+  useEffect(() => {
+    filterMemory.filters = filters
+    filterMemory.search = searchText
+  }, [filters, searchText])
 
   // A new preset (e.g. from global search or overview links) resets the filters.
   useEffect(() => {
@@ -395,6 +413,20 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
             onClick={() => void runBulk(() => api().setDirection({ ids, direction: 'expense' }))}
           >
             {t('documents.bulkMoveExpense')}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() =>
+              void runBulk(async () => {
+                const res = await api().reExtractDocuments(ids)
+                toast.success(
+                  t('documents.reExtractDone', { updated: res.updated, skipped: res.skipped })
+                )
+              })
+            }
+          >
+            {t('documents.bulkReExtract')}
           </button>
           <button
             type="button"

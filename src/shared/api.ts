@@ -68,6 +68,12 @@ export interface BelegbarApi {
   }): Promise<void>
   setDirection(payload: { ids: string[]; direction: DocumentDirection }): Promise<void>
   setVatTreatment(payload: { id: string; code: string; reason?: string }): Promise<TaxDocument>
+  /**
+   * Re-run text extraction, parsing and classification on stored documents
+   * (e.g. after a parser upgrade). Confirmed documents and user-corrected
+   * fields are left untouched; returns how many documents changed.
+   */
+  reExtractDocuments(ids: string[]): Promise<{ updated: number; skipped: number }>
   deleteDocument(id: string, mode?: 'trash' | 'hard'): Promise<void>
   restoreDocument(id: string): Promise<void>
   /** returns the PDF bytes for in-app preview */
