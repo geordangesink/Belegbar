@@ -26,6 +26,18 @@ export type ProcessingStatus =
 
 export type IssueSeverity = 'info' | 'warning' | 'critical'
 
+/**
+ * The ONE user-facing status language, computed from a document's issues,
+ * confidences and review state (core/review/attention.ts) and used
+ * identically in every list, panel and detail view:
+ *  - confirmed  → green checkmark (user confirmed the document)
+ *  - ok         → green ring   (confident analysis, nothing to check)
+ *  - minor      → yellow ring  (works, but some unimportant readings are uncertain)
+ *  - warning    → yellow triangle (ONLY for potentially tax-relevant problems)
+ *  - critical   → red triangle (ONLY for real concerns; excluded from totals)
+ */
+export type AttentionLevel = 'confirmed' | 'ok' | 'minor' | 'warning' | 'critical'
+
 export interface DocumentIssue {
   /** stable machine code, e.g. 'missing_invoice_date' */
   code: string
@@ -266,6 +278,9 @@ export interface AppSettings {
 
   /** local LLM double-check of extracted fields (opt-in; fully offline) */
   llmCheckerEnabled: boolean
+
+  /** post-onboarding tour: 'pending' until the user picked a depth */
+  tourChoice: 'pending' | 'none' | 'minimum' | 'medium' | 'full'
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -290,7 +305,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   deductibleContributions: 0,
   incomeTaxPrepayments: 0,
   includeSolidaritySurcharge: true,
-  llmCheckerEnabled: false
+  llmCheckerEnabled: false,
+  tourChoice: 'pending'
 }
 
 // ---------------------------------------------------------------------------

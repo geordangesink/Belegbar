@@ -173,7 +173,8 @@ export const updateSettingsSchema = z
     deductibleContributions: z.number().min(0).finite(),
     incomeTaxPrepayments: z.number().min(0).finite(),
     includeSolidaritySurcharge: z.boolean(),
-    llmCheckerEnabled: z.boolean()
+    llmCheckerEnabled: z.boolean(),
+    tourChoice: z.enum(['pending', 'none', 'minimum', 'medium', 'full'])
   })
   .partial()
 export type UpdateSettingsPayload = z.infer<typeof updateSettingsSchema>
