@@ -51,24 +51,17 @@ export function Shell(): ReactNode {
             fill="none"
             aria-hidden="true"
           >
-            {/* sandwich, minimal: arch, accent layer, base */}
+            {/* triangle sandwich seen from the top-front, monochrome */}
             <path
-              d="M4 10.2C4 7 7.6 5.4 12 5.4s8 1.6 8 4.8v.8H4v-.8Z"
+              d="M4.6 12.2 12 6.9a.9.9 0 0 1 1 0l6.4 5.3a.55.55 0 0 1-.35.97H4.95a.55.55 0 0 1-.35-.97Z"
               fill="currentColor"
-              opacity="0.9"
             />
-            <rect
-              x="4.4"
-              y="13.2"
-              width="15.2"
-              height="1.9"
-              rx="0.95"
-              fill="var(--accent)"
-            />
+            <rect x="3.9" y="14.2" width="16.2" height="2" rx="1" fill="currentColor" opacity="0.55" />
+            <rect x="3" y="17" width="18" height="1.6" rx="0.8" fill="currentColor" />
             <path
-              d="M4 17.3h16v.7a2.6 2.6 0 0 1-2.6 2.6H6.6A2.6 2.6 0 0 1 4 18v-.7Z"
+              d="M3.9 19.4h16.2v.1a1.9 1.9 0 0 1-1.9 1.9H5.8a1.9 1.9 0 0 1-1.9-1.9v-.1Z"
               fill="currentColor"
-              opacity="0.9"
+              opacity="0.55"
             />
           </svg>
           Beleg<span>bar</span>
