@@ -51,20 +51,22 @@ export function Shell(): ReactNode {
             fill="none"
             aria-hidden="true"
           >
-            {/* sandwich: top bun, lettuce wave, base */}
+            {/* sandwich, minimal: arch, accent layer, base */}
             <path
-              d="M4 10c0-3.3 3.6-5 8-5s8 1.7 8 5v.5H4V10Z"
+              d="M4 10.2C4 7 7.6 5.4 12 5.4s8 1.6 8 4.8v.8H4v-.8Z"
               fill="currentColor"
               opacity="0.9"
             />
-            <path
-              d="M3.5 13.5c1.4 0 1.4 1.6 2.8 1.6s1.4-1.6 2.8-1.6 1.4 1.6 2.8 1.6 1.4-1.6 2.8-1.6 1.4 1.6 2.8 1.6 1.4-1.6 2.9-1.6"
-              stroke="var(--accent)"
-              strokeWidth="1.8"
-              strokeLinecap="round"
+            <rect
+              x="4.4"
+              y="13.2"
+              width="15.2"
+              height="1.9"
+              rx="0.95"
+              fill="var(--accent)"
             />
             <path
-              d="M4 17.5h16V18a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18v-.5Z"
+              d="M4 17.3h16v.7a2.6 2.6 0 0 1-2.6 2.6H6.6A2.6 2.6 0 0 1 4 18v-.7Z"
               fill="currentColor"
               opacity="0.9"
             />
