@@ -21,10 +21,23 @@ export default defineConfig({
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    // zod must be bundled: sandboxed preloads cannot require() external modules
+    plugins: [externalizeDepsPlugin({ exclude: ['zod'] })],
     resolve: {
       alias: {
         '@shared': resolve('src/shared')
+      }
+    },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/preload/index.ts')
+        },
+        output: {
+          // sandboxed preload scripts must be CommonJS
+          format: 'cjs',
+          entryFileNames: '[name].cjs'
+        }
       }
     }
   },

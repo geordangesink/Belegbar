@@ -50,6 +50,11 @@ export interface SteuerfachApi {
   dismissImport(importId: string): Promise<void>
   /** open native file picker, returns chosen pdf paths */
   chooseFiles(direction: DocumentDirection): Promise<string[]>
+  /**
+   * Resolve the absolute path of a dropped File (Electron webUtils).
+   * Synchronous; returns '' when the file has no filesystem path.
+   */
+  getPathForFile(file: File): string
 
   // documents
   listDocuments(filter: Record<string, unknown>): Promise<DocumentListResult>
