@@ -55,11 +55,12 @@ npm run test:e2e         # Playwright end-to-end (launches the built app)
 ```
 
 `better-sqlite3` is a native module compiled either for your Node (unit
-tests) or for Electron (running the app / E2E). The npm scripts rebuild it
-automatically: `npm test` targets Node, `npm run test:e2e` and
-`npm run dev`/`package` target Electron. If you ever hit an ABI error, run
-`npm rebuild better-sqlite3` (Node) or
-`npx electron-builder install-app-deps` (Electron).
+tests) or for Electron (running the app / E2E). `npm test`, `npm run dev`
+and `npm run test:e2e` call `scripts/ensure-native-abi.mjs`, which probes
+the compiled binary and rebuilds only on a mismatch — via node-gyp
+directly, so it also works with `ignore-scripts=true` in your npmrc
+(where `npm rebuild` silently does nothing). Manual invocation:
+`node scripts/ensure-native-abi.mjs node|electron`.
 
 The example documents under `example/` are **confidential local fixtures**
 and are gitignored. Parser accuracy tests against them are opt-in:
