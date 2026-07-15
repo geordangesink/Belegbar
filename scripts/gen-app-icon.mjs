@@ -30,18 +30,20 @@ const SS = 3 // supersampling (3 → 9 samples per pixel)
 
 const BG_CENTER = [0x12, 0x18, 0x15]
 const BG_CORNER = [0x0a, 0x0e, 0x0c]
-const BASE = [0xf7, 0xf4, 0xee] // the bread — one base, the light does the talking
+const BASE = [0xc6, 0xbf, 0xad] // the bread sits LOW so the catch-lights can blaze
 const HEART = [0xff, 0xff, 0xff] // catch-light tint
 
 const LIGHT = {
   angle: 30, // degrees off vertical, leaning toward the LEFT
-  amp: 0.1, // whole-mark fade: lit toward the light, sinking away from it
-  glint: 0.9, // catch-light strength on light-facing edges
-  glintWidth: 9, // px at 1024
-  shade: 0.22, // shade strength on edges turned away
-  shadeWidth: 11, // px at 1024
-  facing: 0.3, // how squarely an edge must face the light to catch it
-  ambientAlpha: 0.05, // warmth the mark casts into the field
+  amp: 0.34, // whole-mark fade: lit toward the light, sinking away from it
+  glint: 1.0, // hard catch-light strength on light-facing edges
+  glintWidth: 14, // hard core, px at 1024
+  glintSoft: 0.7, // soft bloom around the same edges
+  glintSoftWidth: 70, // px at 1024
+  shade: 0.55, // shade strength on edges turned away
+  shadeWidth: 20, // px at 1024
+  facing: 0.18, // how squarely an edge must face the light to catch it
+  ambientAlpha: 0.07, // warmth the mark casts into the field
   ambientReach: 0.55 // fraction of the frame the warmth reaches
 }
 
@@ -193,7 +195,9 @@ function sampleMark(x, y) {
       const facing = e.n[0] * ldir[0] + e.n[1] * ldir[1] // <0 → faces the light
       if (facing < -LIGHT.facing) {
         const d = segDist(x, y, e.a, e.b)
-        glint = Math.max(glint, (1 - smoothstep(0, LIGHT.glintWidth, d)) * -facing)
+        const hard = (1 - smoothstep(0, LIGHT.glintWidth, d)) * -facing
+        const soft = (1 - smoothstep(0, LIGHT.glintSoftWidth, d)) * -facing * LIGHT.glintSoft
+        glint = Math.max(glint, Math.min(1, hard + soft))
       } else if (facing > LIGHT.facing) {
         const d = segDist(x, y, e.a, e.b)
         shade = Math.max(shade, (1 - smoothstep(0, LIGHT.shadeWidth, d)) * facing)
