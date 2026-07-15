@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    Belegbar app icon — triangle sandwich viewed from the top-front.
+    Edit freely, then regenerate build/icon.png with:  npm run icon
+    Two colors only:
+      dark  #121815  (background)
+      light #F7F4EE  (mark)
+  -->
+
+  <!-- background container (macOS-style squircle; set rx="0" for a sharp square) -->
+  <rect x="0" y="0" width="1024" height="1024" rx="224" fill="#121815"/>
+
+  <g fill="#F7F4EE">
+    <!-- top bread: triangular top face, seen at an incline -->
+    <polygon points="236,498 512,340 788,498"/>
+
+    <!-- filling: protrudes past the bread on both sides -->
+    <rect x="214" y="518" width="596" height="40"/>
+
+    <!-- middle slab: sides slant inward toward the bottom (perspective) -->
+    <polygon points="236,578 788,578 768,618 256,618"/>
+
+    <!-- bottom slab: width matches the middle slab's lower edge -->
+    <rect x="256" y="638" width="512" height="46"/>
+  </g>
+</svg>
