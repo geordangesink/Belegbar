@@ -34,7 +34,7 @@ const BASE = [0xc6, 0xbf, 0xad] // the bread sits LOW so the catch-lights can bl
 const HEART = [0xff, 0xff, 0xff] // catch-light tint
 
 const LIGHT = {
-  angle: 30, // degrees off vertical, leaning toward the LEFT
+  angle: 45, // degrees off vertical, leaning toward the LEFT (light from the top-left corner)
   amp: 0.34, // whole-mark fade: lit toward the light, sinking away from it
   glint: 1.0, // hard catch-light strength on light-facing edges
   glintWidth: 14, // hard core, px at 1024
