@@ -54,7 +54,7 @@ export function Shell(): ReactNode {
             {/* triangle sandwich from the top-front — mirrors build/icon.svg */}
             <path d="M4.5 12.2 12 5.8l7.5 6.4H4.5Z" fill="currentColor" />
             <rect x="3.4" y="13.7" width="17.2" height="1.9" fill="currentColor" />
-            <rect x="5.2" y="16.4" width="13.6" height="1.9" fill="currentColor" />
+            <rect x="6.3" y="16.4" width="11.4" height="1.9" fill="currentColor" />
             <rect x="3.4" y="19.1" width="17.2" height="1.9" fill="currentColor" />
           </svg>
           Beleg<span>bar</span>
