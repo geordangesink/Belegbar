@@ -263,6 +263,9 @@ export interface AppSettings {
   deductibleContributions: number
   incomeTaxPrepayments: number
   includeSolidaritySurcharge: boolean
+
+  /** local LLM double-check of extracted fields (opt-in; fully offline) */
+  llmCheckerEnabled: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -286,7 +289,51 @@ export const DEFAULT_SETTINGS: AppSettings = {
   otherTaxableIncome: 0,
   deductibleContributions: 0,
   incomeTaxPrepayments: 0,
-  includeSolidaritySurcharge: true
+  includeSolidaritySurcharge: true,
+  llmCheckerEnabled: false
+}
+
+// ---------------------------------------------------------------------------
+// Local LLM extraction checker
+// ---------------------------------------------------------------------------
+
+export type LlmModelState =
+  | 'not_downloaded'
+  | 'downloading'
+  | 'ready'
+  | 'unsupported'
+  | 'error'
+
+export interface LlmStatus {
+  state: LlmModelState
+  /** bytes downloaded / total while downloading */
+  downloadedBytes: number
+  totalBytes: number
+  /** i18n key for unsupported/error detail */
+  reasonKey: string | null
+  modelFileName: string
+  /** on-disk size when ready, bytes */
+  modelSizeBytes: number
+  /** documents currently queued for checking */
+  queueLength: number
+}
+
+/** One field's verdict from the local model. */
+export interface LlmFieldVerdict {
+  /** does the model agree with the deterministically extracted value? */
+  agrees: boolean
+  /** model's suggested value when it disagrees (never auto-applied) */
+  suggested: string | null
+}
+
+export interface LlmCheckResult {
+  documentId: string
+  model: string
+  /** field name → verdict, only for fields that were checked */
+  fields: Record<string, LlmFieldVerdict>
+  /** wall-clock milliseconds the check took */
+  durationMs: number
+  checkedAt: string
 }
 
 // ---------------------------------------------------------------------------

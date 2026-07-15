@@ -4,6 +4,7 @@
  */
 import type {
   AppSettings,
+  LlmStatus,
   AuditEvent,
   DocumentDirection,
   ImportFileProgress,
@@ -100,6 +101,16 @@ export interface BelegbarApi {
   }): Promise<ExportResult>
   openDataFolder(): Promise<void>
   getSystemLocale(): Promise<string>
+
+  // local LLM extraction checker (opt-in; document text never leaves the device)
+  getLlmStatus(): Promise<LlmStatus>
+  /** start (or resume) the model download; progress arrives via onLlmProgress */
+  downloadLlmModel(): Promise<void>
+  cancelLlmDownload(): Promise<void>
+  removeLlmModel(): Promise<void>
+  /** queue documents for an LLM double-check; results update the documents */
+  runLlmCheck(ids: string[]): Promise<{ queued: number; skipped: number }>
+  onLlmProgress(cb: (status: LlmStatus) => void): () => void
 }
 
 declare global {

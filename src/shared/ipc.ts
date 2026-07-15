@@ -42,7 +42,14 @@ export const IPC = {
   exportPeriod: 'belegbar:export-period',
   openDataFolder: 'belegbar:open-data-folder',
   chooseFiles: 'belegbar:choose-files',
-  getSystemLocale: 'belegbar:get-system-locale'
+  getSystemLocale: 'belegbar:get-system-locale',
+  // local LLM extraction checker
+  getLlmStatus: 'belegbar:get-llm-status',
+  downloadLlmModel: 'belegbar:download-llm-model',
+  cancelLlmDownload: 'belegbar:cancel-llm-download',
+  removeLlmModel: 'belegbar:remove-llm-model',
+  runLlmCheck: 'belegbar:run-llm-check',
+  llmProgress: 'belegbar:llm-progress' // main -> renderer event (LlmStatus)
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
@@ -165,7 +172,8 @@ export const updateSettingsSchema = z
     otherTaxableIncome: z.number().min(0).finite(),
     deductibleContributions: z.number().min(0).finite(),
     incomeTaxPrepayments: z.number().min(0).finite(),
-    includeSolidaritySurcharge: z.boolean()
+    includeSolidaritySurcharge: z.boolean(),
+    llmCheckerEnabled: z.boolean()
   })
   .partial()
 export type UpdateSettingsPayload = z.infer<typeof updateSettingsSchema>
@@ -176,6 +184,10 @@ export const exportPeriodSchema = z.object({
 })
 
 export const reExtractSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(500)
+})
+
+export const runLlmCheckSchema = z.object({
   ids: z.array(z.string().uuid()).min(1).max(500)
 })
 
