@@ -591,3 +591,157 @@ Rechnungsnummer: NA-1
 Rechnungsdatum: 01.02.2026
 Hinweis: Betrag folgt separat
 `
+
+// ---------------------------------------------------------------------------
+// pdf.js production-extraction artifacts (v1.2.0). pdf.js emits NUL (\u0000)
+// for unmapped hyphen glyphs, keeps label+value on ONE line separated by runs
+// of 2+ spaces, and flattens column headers into single-line cell rows.
+// ---------------------------------------------------------------------------
+
+/** Stripe-style receipt as pdf.js extracts it: NUL hyphens + column cells. */
+export const PDFJS_STRIPE_NUL_RECEIPT = `Page 1 of 1
+
+Receipt
+
+Invoice number  AB12CDEF \u0000 0009
+
+Receipt number  2866 \u0000 2040
+Date paid  April 30, 2026
+
+Nimbus Cloud Ireland Limited
+
+1 Sample Quay
+Dublin
+D01 XY99
+Ireland
+billing@nimbus.example
+IE VAT IE1234567FA
+
+Bill to
+
+Max Beispiel
+Musterstraße 1
+12345 Beispielstadt
+Germany
+max@example.com
+
+€23.00 paid on April 30, 2026
+
+Description  Qty  Unit price  Tax  Amount
+
+Nimbus Plus Subscription (per seat)
+Apr 30 \u0000 May 30, 2026
+1  €19.33  19%  €19.33
+
+Subtotal  €19.33
+Total excluding tax  €19.33
+VAT - Germany  \u0000 19% on €19.33 \u0000  €3.67
+Total  €23.00
+
+Amount paid  €23.00
+`
+
+/** OCR'd English invoice of a German seller: label echo trap "Invoice Nr.:X". */
+export const OCR_LABEL_ECHO_INVOICE = `Muster Cooling GmbH - Muster-Zeiss-Str. 2 - D 33999 Musterstadt
+Max Contact Person Connect
+Beispiel Telephone
+Musterstr. 3 Fax
+12345 Beispielstadt E-Mail
+Customer-number 1234567
+Date 06.08.2025
+Invoice Nr.:F1054762
+Pos. Number Description QTY Price EUR Total EUR
+1 1025928 WaterBlock Pro AIO 360 Dark 1 143,99 143,99
+Sum with tax EUR 143,99
+shipping cost incl. VAT EUR 4,99
+Total without VAT 19 % EUR 125,19
+VAT 19 % EUR 23,79
+Total amount EUR 148,98
+`
+
+/** Viking-style pdf.js columns: header cells aligned with a value row. */
+export const PDFJS_COLUMN_TABLE_INVOICE = `DE;VK;INV;0493000211726
+
+Muster Office Deutschland GmbH
+
+Linus-Beispiel-Str.2
+DE-63762 Musterheim
+Amtsgericht: HRB 9999, Ust-ID Nr.: DE812166759
+
+RECHNUNG
+
+Auftraggeber
+
+Max Beispiel
+Musterstraße 1
+12345 Beispielstadt
+GERMANY
+
+Kunden-Nr.  Rechnungs-Nr.  Rechnungsdatum  Fälligkeitsdatum  Auftragsdatum  Auftrags-Nr.
+3000211726  4919278971  21.07.2025  20.08.2025  18.07.2025  DE-VK-801364895W
+
+Nr.  Artikel-
+Nr.
+Beschreibung  Menge /
+ME
+
+1  1185098 Muster Steckdosenleiste mit Schalter
+1/EA  8,49  8,49  8,49  19%
+
+Split-/USt.%  Netto Warenwert  USt.-Betrag  Rechnungsbetrag  Gesamt USt.  Gesamtbetrag
+
+19%  49,00  9,31  58,31  EUR  9,31  EUR  58,31
+
+** Bezahlt mit PayPal **
+`
+
+/** The user's own income template as pdf.js extracts it: "Label  value  Label  value" cells. */
+export const PDFJS_OWN_TEMPLATE_INCOME = `Invoice
+
+Supplier  Max Beispiel  Date  24/01/2026
+Supplier Address  Musterweg 3
+Postal Code  69198  Invoice  2026.01.1
+City  Musterstadt
+Country  Germany
+VAT no  not applicable
+Email address  max@example.com
+Services  Software Development
+
+Bill to
+
+Company
+TAX ID
+VAT ID
+Ejemplo S.A. de C.V.
+0623-000000-000-0
+358704-8
+Postal Code  1101
+City  San Salvador
+Country  El Salvador  Amounts displayed in EUR
+
+Description  Quantity  Unit Price  Amount
+
+Contractor fee - Software Development services for January 2026  1  6,000.00  6,000.00
+
+Tax-exempt other service pursuant to §3a (2) German VAT Act — recipient is located in a third country.
+
+Total  6,000.00 EUR
+`
+
+/** Two DIFFERENT labeled invoice numbers — the second checker must flag it. */
+export const NUMBER_CONFLICT_DOC = `Rechnung
+Rechnungsnummer: RE-100
+Datum: 01.03.2026
+Gesamtbetrag  10,00 €
+Invoice number: RE-999
+`
+
+/** Labeled total contradicts the arithmetically consistent totals row. */
+export const SWEEP_CONFLICT_TOTALS_DOC = `Invoice
+Invoice number: SC-100
+Invoice date: 01.03.2026
+Zwischensumme (netto)  100,00 €
+USt.-Betrag  19,00 €
+Rechnungssumme  119,00 €
+Total  125,00 €
+`

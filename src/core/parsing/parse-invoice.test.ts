@@ -11,13 +11,19 @@ import {
   GROSS_ONLY_RECEIPT,
   MULTI_RATE_GERMAN,
   NO_AMOUNT_DOC,
+  NUMBER_CONFLICT_DOC,
+  OCR_LABEL_ECHO_INVOICE,
   ORDER_CONFIRMATION,
   OWN_TEMPLATE_DE_INCOME,
   OWN_TEMPLATE_EN_INCOME,
+  PDFJS_COLUMN_TABLE_INVOICE,
+  PDFJS_OWN_TEMPLATE_INCOME,
+  PDFJS_STRIPE_NUL_RECEIPT,
   STRATO_STYLE_GERMAN,
   STRIPE_EUR_RECEIPT,
   STRIPE_REFUND_RECEIPT,
   STRIPE_USD_RECEIPT,
+  SWEEP_CONFLICT_TOTALS_DOC,
   USDT_INVOICE_INCOME
 } from './parse-invoice.fixtures'
 
@@ -334,5 +340,109 @@ describe('parseInvoiceText — problem documents', () => {
     for (const issue of r.issues) {
       expect(issue.messageKey).toBe(`issues.${issue.code}`)
     }
+  })
+})
+
+describe('parseInvoiceText — pdf.js extraction artifacts (v1.2.0)', () => {
+  it('repairs NUL-for-hyphen glyphs and same-line double-space labels (Stripe)', () => {
+    const r = parseInvoiceText(PDFJS_STRIPE_NUL_RECEIPT, expenseOpts)
+    expect(r.invoiceNumber.value).toBe('AB12CDEF-0009')
+    expect(r.invoiceNumber.confidence).toBeGreaterThanOrEqual(0.9)
+    expect(r.invoiceDate.value).toBe('2026-04-30')
+    expect(r.invoiceDate.confidence).toBeGreaterThanOrEqual(0.9)
+    expect(r.serviceDateFrom.value).toBe('2026-04-30')
+    expect(r.serviceDateTo.value).toBe('2026-05-30')
+    expect(r.currency.value).toBe('EUR')
+    expect(r.grossAmount.value).toBe(23)
+    expect(r.netAmount.value).toBe(19.33)
+    expect(r.vatAmount.value).toBe(3.67)
+    // second checker corroborates the totals → no low-confidence review chips
+    expect(r.grossAmount.confidence).toBeGreaterThanOrEqual(0.9)
+    expect(r.netAmount.confidence).toBeGreaterThanOrEqual(0.9)
+    expect(r.vatAmount.confidence).toBeGreaterThanOrEqual(0.9)
+    expect(r.vatRates).toEqual([
+      { rate: 19, netAmountOriginal: 19.33, vatAmountOriginal: 3.67, grossAmountOriginal: 23 }
+    ])
+    expect(r.description.value).toBe('Nimbus Plus Subscription (per seat)')
+    expect(r.description.confidence).toBeGreaterThanOrEqual(0.85)
+    expect(r.issuerName.value).toBe('Nimbus Cloud Ireland Limited')
+    expect(r.recipientName.value).toBe('Max Beispiel')
+    expect(r.recipientCountryCode.value).toBe('DE')
+    expect(critical(r)).toEqual([])
+  })
+
+  it('strips label echoes generically ("Invoice Nr.:F1054762" → "F1054762")', () => {
+    const r = parseInvoiceText(OCR_LABEL_ECHO_INVOICE, expenseOpts)
+    expect(r.invoiceNumber.value).toBe('F1054762')
+    expect(r.invoiceNumber.confidence).toBeGreaterThanOrEqual(0.85)
+    expect(r.invoiceDate.value).toBe('2025-08-06')
+    // "Total without VAT" must not be mistaken for the gross
+    expect(r.grossAmount.value).toBe(148.98)
+    expect(r.netAmount.value).toBe(125.19)
+    expect(r.vatAmount.value).toBe(23.79)
+    expect(r.grossAmount.confidence).toBeGreaterThanOrEqual(0.85)
+    expect(r.description.value).toBe('WaterBlock Pro AIO 360 Dark')
+    expect(r.issuerName.value).toBe('Muster Cooling GmbH')
+    expect(r.issuerCountryCode.value).toBe('DE')
+    expect(critical(r)).toEqual([])
+  })
+
+  it('aligns pdf.js column header rows with their value row (Viking style)', () => {
+    const r = parseInvoiceText(PDFJS_COLUMN_TABLE_INVOICE, expenseOpts)
+    expect(r.invoiceNumber.value).toBe('4919278971')
+    expect(r.invoiceNumber.confidence).toBeGreaterThanOrEqual(0.85)
+    expect(r.invoiceDate.value).toBe('2025-07-21')
+    expect(r.invoiceDate.confidence).toBeGreaterThanOrEqual(0.85)
+    expect(r.dueDate.value).toBe('2025-08-20')
+    expect(r.currency.value).toBe('EUR')
+    expect(r.netAmount.value).toBe(49)
+    expect(r.vatAmount.value).toBe(9.31)
+    expect(r.grossAmount.value).toBe(58.31)
+    expect(r.grossAmount.confidence).toBeGreaterThanOrEqual(0.9)
+    expect(r.description.value).toBe('Muster Steckdosenleiste mit Schalter')
+    expect(r.issuerName.value).toBe('Muster Office Deutschland GmbH')
+    expect(r.issuerCountryCode.value).toBe('DE')
+    expect(critical(r)).toEqual([])
+  })
+
+  it('resolves "Label  value  Label  value" cell pairs (own income template)', () => {
+    const r = parseInvoiceText(PDFJS_OWN_TEMPLATE_INCOME, incomeOpts)
+    expect(r.invoiceNumber.value).toBe('2026.01.1')
+    expect(r.invoiceNumber.confidence).toBeGreaterThanOrEqual(0.85)
+    expect(r.invoiceDate.value).toBe('2026-01-24')
+    expect(r.invoiceDate.confidence).toBeGreaterThanOrEqual(0.85)
+    expect(r.grossAmount.value).toBe(6000)
+    expect(r.netAmount.value).toBe(6000)
+    expect(r.vatAmount.value).toBe(0)
+    expect(r.currency.value).toBe('EUR')
+    expect(r.description.value).toBe('Software Development')
+    expect(r.recipientName.value).toBe('Ejemplo S.A. de C.V.')
+    expect(r.recipientCountryCode.value).toBe('SV')
+    expect(r.serviceDateFrom.value).toBe('2026-01-01')
+    expect(r.serviceDateTo.value).toBe('2026-01-31')
+    expect(r.signals.vatExemptWording).toBe(true)
+    expect(critical(r)).toEqual([])
+  })
+})
+
+describe('parseInvoiceText — second checker (corroboration pass)', () => {
+  it('caps confidence when two different labeled invoice numbers exist', () => {
+    const r = parseInvoiceText(NUMBER_CONFLICT_DOC, expenseOpts)
+    expect(r.invoiceNumber.value).toBe('RE-100')
+    expect(r.invoiceNumber.confidence).toBeLessThanOrEqual(0.6)
+  })
+
+  it('caps gross confidence and flags conflicting totals when the totals row disagrees', () => {
+    const r = parseInvoiceText(SWEEP_CONFLICT_TOTALS_DOC, expenseOpts)
+    expect(r.grossAmount.value).toBe(125)
+    expect(r.grossAmount.confidence).toBeLessThanOrEqual(0.6)
+    expect(codes(r)).toContain('conflicting_totals')
+  })
+
+  it('raises confidence when the independent sweep agrees (no false review chips)', () => {
+    const r = parseInvoiceText(STRIPE_EUR_RECEIPT, expenseOpts)
+    expect(r.netAmount.confidence).toBeGreaterThanOrEqual(0.9)
+    expect(r.vatAmount.confidence).toBeGreaterThanOrEqual(0.9)
+    expect(r.invoiceNumber.confidence).toBeGreaterThanOrEqual(0.9)
   })
 })

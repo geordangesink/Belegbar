@@ -1,7 +1,14 @@
 /**
  * Deterministic, locale-aware invoice text parsing.
- * Input: extracted plain text (native PDF text layer or OCR output).
+ * Input: extracted plain text (pdf.js text layer or OCR output).
  * Output: structured fields with per-field confidence + consistency issues.
+ *
+ * Extraction runs in two passes:
+ *  1. primary label resolution (line/cell/stack based, see text-lines.ts)
+ *  2. an independent corroboration sweep (labeled-anywhere regexes and a
+ *     totals-table scan over the whole text). Agreement raises confidence,
+ *     material disagreement caps it, so review chips appear exactly where
+ *     a human should look.
  *
  * No Electron/Node imports allowed — pure functions only.
  */
@@ -20,6 +27,7 @@ import {
   findLineIndex,
   isLabelLike,
   isSectionHeader,
+  normalizeExtractedText,
   resolveLabel,
   toLines,
   type ResolvedLabel,
@@ -35,7 +43,7 @@ export interface ParseInvoiceOptions {
   ocrPages: number[]
 }
 
-export const PARSER_VERSION = '1.1.0'
+export const PARSER_VERSION = '1.2.0'
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -64,8 +72,14 @@ const DATE_LIKE = /\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4}|\d{4}-\d{2}-\d{2}/
 
 /** Find the first plausible monetary amount inside a text fragment. */
 function amountInText(s: string, hint: NumberLocaleHint): AmountHit | null {
+  return amountsInText(s, hint, 1)[0] ?? null
+}
+
+/** Find up to `max` plausible monetary amounts inside a text fragment. */
+function amountsInText(s: string, hint: NumberLocaleHint, max = 8): AmountHit[] {
+  const out: AmountHit[] = []
   const tokenRe = /[-−]?\d[\d.,']*\d|\d/g
-  for (let m = tokenRe.exec(s); m; m = tokenRe.exec(s)) {
+  for (let m = tokenRe.exec(s); m && out.length < max; m = tokenRe.exec(s)) {
     const token = m[0]
     if (DATE_LIKE.test(token)) continue
     const after = s.slice(m.index + token.length, m.index + token.length + 6)
@@ -80,9 +94,9 @@ function amountInText(s: string, hint: NumberLocaleHint): AmountHit | null {
     if (!hasDecimals && currency === null) continue
     const value = parseLocalizedAmount(token, hint)
     if (value === null) continue
-    return { value, currency }
+    out.push({ value, currency })
   }
-  return null
+  return out
 }
 
 function isAmountish(hint: NumberLocaleHint): (v: string) => boolean {
@@ -101,14 +115,20 @@ interface LabeledAmount {
   rank: number
 }
 
+interface AmountSpec {
+  re: RegExp
+  sameLineOnly?: boolean
+}
+
 function resolveAmountLabels(
   lines: TextLine[],
-  specs: RegExp[],
+  specs: (RegExp | AmountSpec)[],
   hint: NumberLocaleHint
 ): LabeledAmount[] {
   const out: LabeledAmount[] = []
-  specs.forEach((re, rank) => {
-    const res = resolveLabel(lines, re, { validate: isAmountish(hint) })
+  specs.forEach((spec, rank) => {
+    const { re, sameLineOnly = false } = spec instanceof RegExp ? { re: spec } : spec
+    const res = resolveLabel(lines, re, { validate: isAmountish(hint), sameLineOnly })
     if (res) {
       const hit = amountInText(res.value, hint)
       if (hit) out.push({ hit, res, rank })
@@ -138,14 +158,69 @@ function lastDayOfMonth(y: number, mo: number): number {
 const LEGAL_FORM =
   /\b(GmbH & Co\. KG|GmbH|mbH|AG|KGaA|e\.K\.|UG(?: \(haftungsbeschränkt\))?|OHG|Inc\.?|LLC|L\.L\.C\.|Ltd\.?|Limited|Corp\.?|Corporation|PLC|plc|S\.?[àa] ?r\.?l\.?|SARL|S\.A\.(?:\s+[Dd][Ee]\s+C\.V\.)?|B\.V\.|N\.V\.|S\.p\.A\.)(?=[\s,.)]|$)/
 
+/** Count currency mentions across the whole text (frequency signal). */
+function countCurrencies(text: string): Map<string, number> {
+  const counts = new Map<string, number>()
+  const bump = (c: string, n: number): void => {
+    counts.set(c, (counts.get(c) ?? 0) + n)
+  }
+  bump('EUR', (text.match(/€/g) ?? []).length + (text.match(/\bEUR\b/g) ?? []).length)
+  bump('USDT', (text.match(/\bUSDT\b/g) ?? []).length * 2)
+  bump('USD', (text.match(/\$/g) ?? []).length + (text.match(/\bUSD\b/g) ?? []).length)
+  bump('GBP', (text.match(/£/g) ?? []).length + (text.match(/\bGBP\b/g) ?? []).length)
+  bump('CHF', (text.match(/\bCHF\b/g) ?? []).length)
+  return counts
+}
+
+/** Plausible German/EU VAT rates for the corroboration triple scan. */
+const SWEEP_RATES = [19, 7, 5]
+
+interface TotalsTriple {
+  net: number
+  vat: number
+  gross: number
+  rate: number
+}
+
+/**
+ * Independent totals-table scan: every decimal amount in the text, then all
+ * (net, vat, gross) combinations with net+vat=gross at a plausible VAT rate.
+ */
+function sweepTotalsTriples(text: string, hint: NumberLocaleHint): TotalsTriple[] {
+  const amounts = new Set<number>()
+  const amtRe = /(?<![\d.,])(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2}(?!(?:[.,]?\d|\s?%))/g
+  for (let m = amtRe.exec(text); m; m = amtRe.exec(text)) {
+    const v = parseLocalizedAmount(m[0], hint)
+    if (v !== null && v > 0) amounts.add(roundMoney(v))
+  }
+  const list = [...amounts]
+  const triples: TotalsTriple[] = []
+  for (const net of list) {
+    for (const vat of list) {
+      if (vat <= 0 || vat >= net) continue
+      const gross = roundMoney(net + vat)
+      if (!amounts.has(gross)) continue
+      const rate = (vat / net) * 100
+      const matched = SWEEP_RATES.find((r) => Math.abs(rate - r) <= 0.4)
+      if (matched === undefined) continue
+      if (!triples.some((t) => t.net === net && t.vat === vat)) {
+        triples.push({ net, vat, gross, rate: matched })
+      }
+    }
+  }
+  return triples
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
 export function parseInvoiceText(
-  text: string,
+  rawText: string,
   options: ParseInvoiceOptions
 ): ExtractedInvoiceData {
+  // pdf.js/OCR artifact cleanup first; ALL downstream offsets refer to this text
+  const text = normalizeExtractedText(rawText)
   const lines = toLines(text)
   const localeGuess = detectNumberLocale(text)
   const hint: NumberLocaleHint = localeGuess === 'unknown' ? 'auto' : localeGuess
@@ -174,22 +249,29 @@ export function parseInvoiceText(
   // ---- invoice number -------------------------------------------------------
   const invoiceNoValid = (v: string): boolean =>
     /\d/.test(v) && v.length >= 3 && v.length <= 40 && !v.includes('@') &&
-    !/[€$£]/.test(v) && !isDateValue(v) && !/^\+?\d{1,4}[\s-]\d{2,}[\s-]\d{2,}[\s-]?\d*$/.test(v)
+    !/[€$£]/.test(v) && !isDateValue(v) && !/^\+?\d{1,4}[\s-]\d{2,}[\s-]\d{2,}[\s-]?\d*$/.test(v) &&
+    !/\b(?:seite|page)\s*\d/i.test(v)
+  const idShapedNo = (v: string): boolean => /^[A-Za-z0-9][A-Za-z0-9.\-\/_]{2,19}$/.test(v)
 
   let invoiceNumber: ExtractedField<string> = { ...NONE }
-  for (const [re, conf, bumpable] of [
+  for (const [re, conf, bare] of [
     [/^Rechnungsnummer\b/i, 0.9, false],
-    [/^Rechnungs[- ]?Nr\.?(?!\S)/i, 0.9, false],
-    [/^Invoice\s*(?:number|no\.?|nr\.?)(?!\S)/i, 0.9, false],
+    [/^Rechnungs[- ]?Nr\.?(?!\p{L})/iu, 0.9, false],
+    [/^Rechnung\s+(?:Nr\.?|Nummer)(?!\p{L})/iu, 0.9, false],
+    [/^Invoice\s*(?:number|no\.?|nr\.?)(?!\p{L})/iu, 0.9, false],
+    [/^(?:Barverkauf|Beleg)[-\s]?(?:Nr\.?|Nummer)(?!\p{L})/iu, 0.85, false],
     [/^Invoice(?!\S)/i, 0.7, true],
+    [/^Rechnung(?!\S)/i, 0.7, true],
     [/^Receipt number\b/i, 0.6, false]
   ] as [RegExp, number, boolean][]) {
     const res = resolveLabel(lines, re, { validate: invoiceNoValid })
     if (res) {
-      const value = res.value.replace(/^[:#]\s*/, '')
-      // a compact id-shaped value right after a bare "Invoice" label is reliable
-      const idShaped = /^[A-Za-z0-9][A-Za-z0-9.\-\/_]{2,19}$/.test(value)
-      invoiceNumber = f(value, bumpable && idShaped ? 0.85 : conf)
+      const value = res.value
+      const idShaped = idShapedNo(value)
+      // a bare "Invoice"/"Rechnung" label is only trusted when the value sits
+      // right next to it or is compact and id-shaped
+      if (bare && !res.sameLine && !idShaped) continue
+      invoiceNumber = f(value, bare && idShaped ? 0.85 : conf)
       break
     }
   }
@@ -224,15 +306,25 @@ export function parseInvoiceText(
     invoiceDateCand =
       findDatesDetailed(invoiceDateRes.value)[0] ?? null
   } else {
+    let orderDateCand: DateCandidate | null = null
     for (const cand of dates) {
       const before = text.slice(Math.max(0, cand.index - 30), cand.index)
       if (/(?:vom|bis|bestell|auftrag|versand|liefer|due|fällig|paid on|refund)[a-zäöü.]*\s*:?\s*$/i.test(before)) {
+        // an order date is an acceptable last resort for order confirmations
+        if (orderDateCand === null && /(?:vom|bestell|auftrag)[a-zäöü.]*\s*:?\s*$/i.test(before)) {
+          orderDateCand = cand
+        }
         continue
       }
       invoiceDateCand = cand
       invoiceDateIso = cand.iso
       invoiceDateConf = 0.6
       break
+    }
+    if (invoiceDateCand === null && orderDateCand !== null) {
+      invoiceDateCand = orderDateCand
+      invoiceDateIso = orderDateCand.iso
+      invoiceDateConf = 0.6
     }
     // A date standing alone on its own line (German letter layout) is almost
     // always the document date — when it is the only such line, trust it.
@@ -277,7 +369,12 @@ export function parseInvoiceText(
     resolveDate(/^Zahlungsziel\b/i) ??
     resolveDate(/^Due date\b/i) ??
     resolveDate(/^Due\b/i)
-  const dueDate = dueRes ? f(parseInvoiceDate(dueRes.value), 0.85) : { ...NONE }
+  let dueDate = dueRes ? f(parseInvoiceDate(dueRes.value), 0.85) : { ...NONE }
+  if (dueDate.value === null) {
+    // German payment-terms sentence ("zahlbar bis zum 25.11.2025, rein netto")
+    const zb = /zahlbar\s+bis(?:\s+zum)?\s+([\d]{1,2}[.\/][\d]{1,2}[.\/]\d{4})/i.exec(text)
+    if (zb) dueDate = f(parseInvoiceDate(zb[1] ?? ''), 0.8)
+  }
 
   let paymentDateIso: string | null = null
   const paidOn = /(?:paid on|bezahlt am)\s+(.{4,30}?\d{4})/i.exec(text)
@@ -341,9 +438,14 @@ export function parseInvoiceText(
       /^Summe\s+Rechnungsbetrag\b/i,
       /^Gesamtbetrag\b/i,
       /^Gesamtpreis\b/i,
-      /^Total(?:\s+in\s+[A-Z]{3})?(?!\s*(?:excluding|excl|refunded))\b/i,
+      /^Endsumme\b/i,
+      /^Summe\s+Brutto\b/i,
+      /^Total\s+amount\b/i,
+      /^(?:Vorl\.?\s*)?Ges\.?-?summe\b/i,
+      /^Total(?:\s+in\s+[A-Z]{3})?(?!\s*(?:excluding|excl|without|refunded|net))\b/i,
       /^Rechnungsbetrag\b/i,
-      /^Bruttobetrag\b/i
+      /^Bruttobetrag\b/i,
+      { re: /^Betrag(?!\S)/, sameLineOnly: true }
     ],
     hint
   )
@@ -351,10 +453,12 @@ export function parseInvoiceText(
     lines,
     [
       /^Total excluding tax\b/i,
+      /^Total without (?:VAT|tax)\b/i,
       /^Zwischensumme\s*\((?:netto|ohne\s*USt\.?)\)/i,
       /^Nettobetrag\b/i,
       /^(?:Entspricht der )?Summe netto\b/i,
-      /^Netto Warenwert\b/i,
+      /^Netto Waren?wert\b/i,
+      /^Gesamt\s+Netto\b/i,
       /^Subtotal(?:\s+in\s+[A-Z]{3})?\b/i,
       /^Netto\b(?!\s*[Ww]arenwert)/,
       /^Net amount\b/i
@@ -364,12 +468,24 @@ export function parseInvoiceText(
   // VAT labels; several patterns also carry the rate in a capture group
   const vatSpecs: { re: RegExp; rateGroup: number | null }[] = [
     { re: /^VAT\b[^(\n]*\((\d{1,2}(?:[.,]\d{1,2})?)\s*%(?:\s+on\s+[^)]*)?\)\s*$/i, rateGroup: 1 },
+    // pdf.js renders the parentheses of "VAT - DE (19% on €19.33)" as dashes
+    { re: /^VAT\b[^(\n]*?-\s?(\d{1,2}(?:[.,]\d{1,2})?)\s*%\s+on\s+[^-\n]*?-/i, rateGroup: 1 },
     { re: /^Umsatzsteuer\s*\((\d{1,2}(?:[.,]\d{1,2})?)\s*%\)/i, rateGroup: 1 },
-    { re: /^\+?\s*(\d{1,2})\s*[%&]\s*USt\b.*$/i, rateGroup: 1 },
+    { re: /^Umsatzsteuer\s+(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i, rateGroup: 1 },
+    { re: /^VAT\s+(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i, rateGroup: 1 },
+    // OCR receipts: "incl. 19,00% MwSt" with arbitrary glyph mangling of MwSt
+    { re: /^in[ck]l[.,]?\s*(\d{1,2}(?:[.,]\d{1,2})?)\s*%\s*(?:MwSt|Mwst|USt|Hust|Must)\b\.?/i, rateGroup: 1 },
+    {
+      // "+ 19 & USt (§ 12 UStG)" with the amount on the same line (pdf.js) or
+      // on the following line (PyMuPDF)
+      re: /^\+?\s*(\d{1,2})\s*[%&]\s*USt\b(?:[^€$£\n]*?(?=\s+[€$£]?\s?\d[\d.,]*\s*(?:EUR|USD|GBP|CHF)?\s*$)|.*$)/i,
+      rateGroup: 1
+    },
     { re: /^(?:MwSt|USt)\.?-?[Bb]etrag\b/, rateGroup: null },
     { re: /^Gesamt\s*USt\.?(?!\S)/i, rateGroup: null },
     { re: /^USt\.?\s*$/, rateGroup: null },
-    { re: /^MwSt\.?(?:\s+MwSt\.?-?Satz)?\s*$/i, rateGroup: null }
+    { re: /^MwSt\.?(?:\s+MwSt\.?-?Satz)?\s*$/i, rateGroup: null },
+    { re: /^Tax(?:es)?(?!\s*(?:ID|No\b|Nr\b|number))\b/i, rateGroup: null }
   ]
   let vatHit: LabeledAmount | null = null
   let vatRateFromLabel: number | null = null
@@ -384,23 +500,18 @@ export function parseInvoiceText(
       const m = spec.re.exec(lines[res.labelLine]?.text ?? '')
       const rateRaw = m?.[spec.rateGroup]
       if (rateRaw !== undefined) vatRateFromLabel = Number(rateRaw.replace(',', '.'))
-      const baseM = /\(\s*[\d.,]+\s*%\s+on\s+([^)]+)\)/i.exec(lines[res.labelLine]?.text ?? '')
+      const baseM = /[-(]\s?[\d.,]+\s*%\s+on\s+([€$£]?\s*[\d.,]+)/i.exec(lines[res.labelLine]?.text ?? '')
       if (baseM) vatBaseFromLabel = amountInText(baseM[1] ?? '', hint)?.value ?? null
     }
     break
   }
 
-  // multi-rate tables (Amazon/Viking): "19%" line followed by net + vat lines
+  // multi-rate tables (Amazon/Viking): "19%" rate followed by net + vat, either
+  // stacked on following lines (PyMuPDF) or in-line as columns (pdf.js/OCR)
   const tableRates: VatRateLine[] = []
-  for (let i = 0; i + 2 < lines.length; i++) {
-    const rateM = /^(\d{1,2}(?:[.,]\d{1,2})?)\s*%$/.exec(lines[i]?.text ?? '')
-    if (!rateM) continue
-    const a = amountInText(lines[i + 1]?.text ?? '', hint)
-    const b = amountInText(lines[i + 2]?.text ?? '', hint)
-    if (!a || !b) continue
-    const rate = Number((rateM[1] ?? '').replace(',', '.'))
+  const pushRateRow = (rate: number, a: AmountHit, b: AmountHit): void => {
     const expected = roundMoney((a.value * rate) / 100)
-    if (Math.abs(expected - b.value) > 0.05) continue
+    if (Math.abs(expected - b.value) > 0.05) return
     const row: VatRateLine = {
       rate,
       netAmountOriginal: roundMoney(a.value),
@@ -410,6 +521,23 @@ export function parseInvoiceText(
     if (!tableRates.some((r) => r.rate === row.rate && r.netAmountOriginal === row.netAmountOriginal)) {
       tableRates.push(row)
     }
+  }
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i]?.text ?? ''
+    const inline = /^(\d{1,2}(?:[.,]\d{1,2})?)\s*%\s+(\S.*)$/.exec(t)
+    if (inline) {
+      const rate = Number((inline[1] ?? '').replace(',', '.'))
+      const amounts = amountsInText(inline[2] ?? '', hint, 2)
+      if (amounts.length >= 2 && amounts[0] && amounts[1]) pushRateRow(rate, amounts[0], amounts[1])
+      continue
+    }
+    if (i + 2 >= lines.length) continue
+    const rateM = /^(\d{1,2}(?:[.,]\d{1,2})?)\s*%$/.exec(t)
+    if (!rateM) continue
+    const a = amountInText(lines[i + 1]?.text ?? '', hint)
+    const b = amountInText(lines[i + 2]?.text ?? '', hint)
+    if (!a || !b) continue
+    pushRateRow(Number((rateM[1] ?? '').replace(',', '.')), a, b)
   }
 
   // single VAT rate detection from wording when not in a label
@@ -557,6 +685,82 @@ export function parseInvoiceText(
     }
   }
 
+  // ---- second checker: independent totals sweep ------------------------------
+  // Re-locate the totals from scratch (pattern sweep over the whole text) and
+  // compare with the label-driven extraction above.
+  {
+    const triples = sweepTotalsTriples(text, hint)
+    let triple: TotalsTriple | null = null
+    if (grossValue !== null) {
+      const g = grossValue
+      const matching = triples.filter((t) => Math.abs(t.gross - g) <= 0.02)
+      if (matching.length === 1) triple = matching[0] ?? null
+      else if (matching.length === 0 && triples.length === 1) triple = triples[0] ?? null
+    } else if (triples.length === 1) {
+      triple = triples[0] ?? null
+    }
+
+    if (triple !== null) {
+      if (grossValue === null) {
+        // the labeled pass found nothing; a unique arithmetically consistent
+        // totals row is strong enough to adopt
+        grossValue = triple.gross
+        netValue = triple.net
+        vatValue = triple.vat
+        grossConf = 0.85
+        netConf = 0.85
+        vatConf = 0.85
+        if (singleRate === null) singleRate = triple.rate
+        if (effectiveRates.length === 0) {
+          effectiveRates = [{
+            rate: triple.rate,
+            netAmountOriginal: triple.net,
+            vatAmountOriginal: triple.vat,
+            grossAmountOriginal: triple.gross
+          }]
+        }
+      } else if (Math.abs(triple.gross - grossValue) <= 0.02) {
+        grossConf = Math.max(grossConf, 0.9)
+        if (singleRate === null) singleRate = triple.rate
+        if (netValue !== null && Math.abs(triple.net - netValue) <= 0.02) {
+          netConf = Math.max(netConf, 0.9)
+        } else if (netValue === null) {
+          netValue = triple.net
+          netConf = 0.8
+        } else if (netConf <= 0.85) {
+          netConf = Math.min(netConf, 0.6)
+        }
+        if (vatValue !== null && Math.abs(triple.vat - vatValue) <= 0.02) {
+          vatConf = Math.max(vatConf, 0.9)
+        } else if (vatValue === null) {
+          vatValue = triple.vat
+          vatConf = 0.8
+        } else if (vatConf <= 0.85) {
+          vatConf = Math.min(vatConf, 0.6)
+        }
+      } else {
+        // material disagreement: the sweep found a consistent totals row that
+        // contradicts the labeled gross
+        grossConf = Math.min(grossConf, 0.6)
+        if (
+          netValue !== null &&
+          vatValue !== null &&
+          Math.abs(netValue + vatValue - grossValue) > 0.02
+        ) {
+          addIssue('conflicting_totals', 'critical', 'grossAmount')
+        }
+      }
+    }
+    // gross corroboration via "largest amount printed": receipts print the
+    // grand total as (one of) the largest amounts, usually more than once.
+    // Only applies when no totals-row triple was found at all.
+    if (grossValue !== null && triples.length === 0) {
+      const amounts = amountsInText(text, hint, 200).map((a) => roundMoney(a.value))
+      const max = amounts.reduce((m, v) => (v > m ? v : m), 0)
+      if (max > 0 && Math.abs(max - grossValue) <= 0.02) grossConf = Math.max(grossConf, 0.9)
+    }
+  }
+
   const vatRates: VatRateLine[] =
     effectiveRates.length > 0
       ? effectiveRates
@@ -602,20 +806,88 @@ export function parseInvoiceText(
       currencyConf = 0.85
     }
   }
+  const currencyCounts = countCurrencies(text)
   if (!currency) {
-    const counts = new Map<string, number>()
-    const bump = (c: string, n: number): void => {
-      counts.set(c, (counts.get(c) ?? 0) + n)
-    }
-    bump('EUR', (text.match(/€/g) ?? []).length + (text.match(/\bEUR\b/g) ?? []).length)
-    bump('USDT', (text.match(/\bUSDT\b/g) ?? []).length * 2)
-    bump('USD', (text.match(/\$/g) ?? []).length + (text.match(/\bUSD\b/g) ?? []).length)
-    bump('GBP', (text.match(/£/g) ?? []).length + (text.match(/\bGBP\b/g) ?? []).length)
-    bump('CHF', (text.match(/\bCHF\b/g) ?? []).length)
-    const sorted = [...counts.entries()].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1])
+    const sorted = [...currencyCounts.entries()].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1])
     if (sorted[0]) {
       currency = sorted[0][0]
       currencyConf = 0.6
+    }
+  }
+  // second checker: the document-wide frequency count is an independent signal
+  if (currency !== null) {
+    const own = currencyCounts.get(currency) ?? 0
+    const rival = [...currencyCounts.entries()]
+      .filter(([c, n]) => c !== currency && n > 0 && !(currency === 'USDT' && c === 'USD'))
+      .reduce((m, [, n]) => Math.max(m, n), 0)
+    if (currencyConf >= 0.85 && own >= 2 && own >= rival) {
+      currencyConf = Math.max(currencyConf, 0.9)
+    } else if (currencyConf < 0.85 && rival === 0) {
+      // sole currency in the whole document
+      currencyConf = own >= 2 ? 0.85 : 0.75
+    }
+  }
+
+  // ---- second checker: invoice number / date corroboration --------------------
+  {
+    const normNo = (s: string): string => s.replace(/[\s:#]+/g, '').toUpperCase()
+    const numValid = (s: string): boolean => invoiceNoValid(s) && !/^(?:page|seite)/i.test(s)
+    const strong: string[] = []
+    const strongRe =
+      /(?:invoice\s*(?:number|no\.?|nr\.?)|rechnungs(?:nummer|[-\s]?nr\.?)|rechnung\s+(?:nr\.?|nummer)|beleg(?:nummer|[-\s]?nr\.?))\s*[:#]?\s*([A-Za-z0-9][A-Za-z0-9.\-\/_]{2,24})/gi
+    for (let m = strongRe.exec(text); m; m = strongRe.exec(text)) {
+      const v = m[1] ?? ''
+      if (numValid(v) && !strong.includes(normNo(v))) strong.push(normNo(v))
+    }
+    const weak: string[] = []
+    const weakRe = /(?:rechnung|invoice)\s*[:#]?\s{1,4}([A-Za-z0-9][A-Za-z0-9.\-\/_]{2,24})/gi
+    for (let m = weakRe.exec(text); m; m = weakRe.exec(text)) {
+      const v = m[1] ?? ''
+      if (numValid(v) && !weak.includes(normNo(v))) weak.push(normNo(v))
+    }
+    if (invoiceNumber.value !== null) {
+      const n = normNo(invoiceNumber.value)
+      if (strong.length === 1 && strong[0] === n) {
+        invoiceNumber = f(invoiceNumber.value, Math.max(invoiceNumber.confidence, 0.9))
+      } else if (strong.length > 0) {
+        // several distinct labeled numbers, or none matching the primary pick
+        invoiceNumber = f(invoiceNumber.value, Math.min(invoiceNumber.confidence, 0.6))
+      } else if (weak.includes(n)) {
+        invoiceNumber = f(invoiceNumber.value, Math.max(invoiceNumber.confidence, 0.9))
+      }
+    } else if (strong.length === 1) {
+      // labeled anywhere in the text, just not in a line-anchored position
+      const m = new RegExp(strongRe.source, 'i').exec(text)
+      const value = m?.[1] ?? null
+      if (value !== null && numValid(value)) invoiceNumber = f(value, 0.85)
+    }
+
+    // invoice date: re-locate via labeled-anywhere sweep
+    const posLabel =
+      /(?:rechnungsdatum|belegdatum|ausstellungsdatum|invoice date|date paid|issue date|date of issue|(?<![a-zäöü])datum|(?<![a-z])date)\s*[:.]?\s*[\/\w]{0,14}\s*$/i
+    const negLabel =
+      /(?:bestell|auftrag|liefer|versand|due|fällig|zahlbar|start|end|paid on|refund)[a-zäöü.]*\s*:?\s*$/i
+    const labeledDates: string[] = []
+    for (const cand of dates) {
+      const before = text.slice(Math.max(0, cand.index - 34), cand.index)
+      if (posLabel.test(before)) {
+        if (!labeledDates.includes(cand.iso)) labeledDates.push(cand.iso)
+      } else if (negLabel.test(before)) {
+        continue
+      }
+    }
+    if (invoiceDateIso !== null) {
+      // an ambiguous DD/MM vs MM/DD reading stays flagged — the sweep can only
+      // confirm WHERE the date is, not how to read it
+      const ambiguous = issues.some((i) => i.code === 'ambiguous_date_format')
+      if (labeledDates.includes(invoiceDateIso)) {
+        if (!ambiguous) invoiceDateConf = Math.max(invoiceDateConf, 0.9)
+      } else if (labeledDates.length > 0) {
+        invoiceDateConf = Math.min(invoiceDateConf, 0.6)
+      } else if (!ambiguous && dates.length > 0 && dates.every((c) => c.iso === invoiceDateIso)) {
+        // every date in the document is the same one
+        invoiceDateConf = Math.max(invoiceDateConf, 0.85)
+      }
     }
   }
 
@@ -648,6 +920,8 @@ export function parseInvoiceText(
         if (out.length > 0) break
         continue
       }
+      // OCR garbage never starts a party block
+      if (out.length === 0 && !/^[\p{L}\d"']/u.test(t)) break
       if (t.includes('@') || isLabelLike(t) || isSectionHeader(t) || boilerplateLine.test(t)) break
       out.push(t)
       // a country line terminates an address block
@@ -720,12 +994,21 @@ export function parseInvoiceText(
       const t = lines[i]?.text ?? ''
       if (t.length === 0 || (i >= blockStart && i <= blockEnd && blockStart >= 0)) continue
       if (containsOwnName(t) || /^bank\b/i.test(t)) continue
-      if (!LEGAL_FORM.test(t)) continue
-      const parts = t.split(/\s+[•–]\s+|\s+-\s+(?=\d)/)
-      const namePart = (parts[0] ?? t).trim().replace(/[,;]+$/, '')
+      const lf = LEGAL_FORM.exec(t)
+      if (!lf) continue
+      // the company name ends with its legal form; the line tail is address/junk
+      let namePart = t.slice(0, lf.index + lf[0].length).trim().replace(/^Verkauft von\s+/i, '')
+      namePart = namePart.replace(/[,;]+$/, '')
       issuerName = f(namePart, 0.85)
-      if (parts.length > 1) {
-        issuerAddress = f(parts.slice(1).join(', '), 0.8)
+      const tail = t
+        .slice(lf.index + lf[0].length)
+        .replace(/^[\s,;:•|–-]+/, '')
+        .trim()
+      if (tail.length > 0 && /\d/.test(tail) && !/\b(?:HRB|HRA|IBAN|BIC|Bank)\b/i.test(tail)) {
+        issuerAddress = f(
+          tail.replace(/\s+[•–|]\s+/g, ', ').replace(/\s+-\s+(?=\d|[A-Z]{1,2}[- ]?\d)/g, ', ').replace(/\s{2,}/g, ', '),
+          0.8
+        )
       } else {
         const collectAddrAfter = (start: number): string[] => {
           const addr: string[] = []
@@ -754,7 +1037,7 @@ export function parseInvoiceText(
     if (issuerAddress.value !== null) {
       const c = detectCountryInText(issuerAddress.value)
       if (c) issuerCountry = f(c, 0.85)
-      else if (/\bDE-\d{4,5}\b/.test(issuerAddress.value)) issuerCountry = f('DE', 0.85)
+      else if (/\bD(?:E)?[- ]?\d{4,5}\b/.test(issuerAddress.value)) issuerCountry = f('DE', 0.85)
       else if (/\b\d{5}\s+\p{Lu}/u.test(issuerAddress.value) && /Rechnung|USt|MwSt/.test(text)) {
         // German 5-digit postal code + city in a German-language document
         issuerCountry = f('DE', 0.85)
@@ -874,28 +1157,110 @@ export function parseInvoiceText(
     if (stripped.length < 4) return false
     // a bare country line is address spill-over, not an item
     if (!/\d/.test(v) && letters <= 14 && detectCountryInText(v) !== null) return false
+    // times of day mark payment-terminal / log lines, not items
+    if (/\b\d{1,2}:\d{2}\b/.test(v)) return false
+    // VAT ids and postal-code/city lines are address spill-over
+    if (/\b(?:VAT|USt|UST-?ID|OSS|EIN)\b/i.test(v) && /\d{4,}/.test(v)) return false
+    if (/^\p{Lu}[\p{Lu} .-]*,?\s*\d{4,6}$/u.test(v)) return false
     return true
+  }
+  /** Strip item-table adornments: leading position/article numbers, trailing qty/price columns. */
+  const cleanItemText = (raw: string): string => {
+    let s = raw.trim()
+    // leading pure-number tokens (position, article number, quantity)
+    while (/^\d{1,10}\s/.test(s)) {
+      const rest = s.replace(/^\d{1,10}\s+/, '')
+      if (!/\p{L}/u.test(rest)) break
+      s = rest
+    }
+    // trailing amount/qty/unit tokens
+    const tokens = s.split(/\s+/)
+    const trailing =
+      /^(?:-?[\d.,']+\s?(?:[€$£]|%)?|[€$£]|EUR|USD|USDT|GBP|CHF|Stk\.?|Stück|St\.?|EA|PK|x|\d+\/(?:EA|PK|Stk?)\.?)$/i
+    while (tokens.length > 1 && trailing.test(tokens[tokens.length - 1] ?? '')) tokens.pop()
+    return tokens.join(' ').replace(/[\s,;:–|-]+$/, '').trim()
   }
   const services = resolveLabel(lines, /^(?:Services|Dienstleis?t?ungen)(?!\S)/i, {
     validate: descValid
   })
   if (services) description = f(services.value, 0.85)
   if (description.value === null) {
-    // item table: first item-looking line after a "Description"-style column
-    // header, skipping the remaining column labels of the header row
-    const headerIdx = findLineIndex(
-      lines,
-      /^(?:Description|Beschreibung|Artikelbezeichnung|Produktbeschreibung)\s*:?$/i
-    )
-    if (headerIdx >= 0) {
-      for (let i = headerIdx + 1; i < lines.length && i <= headerIdx + 16; i++) {
-        const t = lines[i]?.text ?? ''
-        if (t.length === 0 || isLabelLike(t) || isSectionHeader(t)) continue
-        const cleaned = t.replace(/^\d{4,10}\s+/, '') // leading article number
-        if (!descValid(cleaned) || containsOwnName(cleaned)) continue
-        description = f(cleaned, 0.85)
+    // item table below a "Description"-style column header. pdf.js keeps the
+    // header columns on one line ("Description  Qty  Unit price  Tax  Amount"),
+    // OCR mangles spacing ("Pos. Nummer Bezeichnung Menge Preis EUR")
+    const descWord = /^(?:Description|Beschreibung|Artikelbezeichnung|Produktbeschreibung|Bezeichnung)\s*:?$/i
+    const otherCol = /\b(?:Qty|Quantity|Menge|Anzahl|Units?|Preis|Price|Amount|Betrag|Stückpreis|Einh|Tax|USt|MwSt)\b/i
+    let headerIdx = -1
+    let headerCol = -1
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      if (!line || line.text.length === 0) continue
+      const k = line.cells.findIndex((c) => descWord.test(c))
+      if (k >= 0 && (line.cells.length === 1 || k > 0 || otherCol.test(line.text) || isLabelLike(line.text))) {
+        headerIdx = i
+        headerCol = line.cells.length > 1 ? k : -1
         break
       }
+      // OCR single-space header row ("Pos. Nummer Bezeichnung Menge Preis EUR")
+      if (/\b(?:Bezeichnung|Beschreibung|Description)\b/i.test(line.text) && otherCol.test(line.text) &&
+          (/^(?:Beschreibung|Bezeichnung|Description|Artikelbezeichnung|Produktbeschreibung)\b/i.test(line.text) ||
+            /(?:^|\s)(?:Pos\.?|Pos-Nr\.?|Nr\.?|Art-?Nr\.?|Artikel)(?:\s|$)/i.test(line.text)) &&
+          line.text.length <= 110 && !/[€$£]\s?\d|\d,\d\d/.test(line.text)) {
+        headerIdx = i
+        headerCol = -1
+        break
+      }
+    }
+    if (headerIdx >= 0) {
+      for (let i = headerIdx + 1; i < lines.length && i <= headerIdx + 16; i++) {
+        const line = lines[i]
+        const t = line?.text ?? ''
+        if (t.length === 0 || isLabelLike(t) || isSectionHeader(t) || /^\(.*\)$/.test(t)) continue
+        if ((line?.cells.length ?? 0) > 1 && (line?.cells ?? []).every((c) => isLabelLike(c))) continue
+        const candidates: string[] = []
+        if (headerCol > 0 && (line?.cells.length ?? 0) > headerCol) {
+          candidates.push(cleanItemText(line?.cells[headerCol] ?? ''))
+        }
+        candidates.push(cleanItemText(line?.cells[0] ?? t))
+        candidates.push(cleanItemText(t))
+        const good = candidates.find((c) => descValid(c) && !containsOwnName(c))
+        if (good === undefined) continue
+        description = f(good, 0.85)
+        break
+      }
+    }
+  }
+  if (description.value === null) {
+    // pdf.js item rows: "Pro – Base Fee  $25.00" (description cell + amount cell)
+    let bestCellPair: { text: string; amt: number; strong: boolean } | null = null
+    for (const line of lines) {
+      if (line.cells.length < 2 || line.cells.length > 6) continue
+      const last = line.cells[line.cells.length - 1] ?? ''
+      const pure = line.cells.length === 2 && /^[€$£]?\s*-?[\d.,]+$/.test(last)
+      if (!pure && !/[\d.,]+\s*[€$£]?\s*$/.test(last)) continue
+      const hit = amountInText(last, hint)
+      if (!hit || hit.value <= 0) continue
+      // the description is the longest valid non-amount cell
+      const cand = line.cells
+        .slice(0, -1)
+        .map((c) => cleanItemText(c))
+        .filter(
+          (c) =>
+            descValid(c) && !isLabelLike(c) && !isSectionHeader(c) &&
+            !containsOwnName(c) && !DATE_LIKE.test(c) && !c.includes('@')
+        )
+        .sort((a, b) => b.length - a.length)[0]
+      if (cand === undefined) continue
+      if (!pure && line.cells.length === 2) continue
+      if (!bestCellPair || (pure && !bestCellPair.strong) || (pure === bestCellPair.strong && hit.value > bestCellPair.amt)) {
+        bestCellPair = { text: cand, amt: hit.value, strong: pure }
+      }
+    }
+    if (bestCellPair) {
+      const corroborated =
+        (netValue !== null && Math.abs(bestCellPair.amt - netValue) <= 0.02) ||
+        (grossValue !== null && Math.abs(bestCellPair.amt - grossValue) <= 0.02)
+      description = f(bestCellPair.text, corroborated ? 0.85 : 0.6)
     }
   }
   if (description.value === null) {
@@ -914,6 +1279,18 @@ export function parseInvoiceText(
     }
   }
   if (description.value === null) {
+    // OCR order confirmations: SKU + qty + price line, wrapped item name below
+    for (let i = 0; i + 1 < lines.length; i++) {
+      const t = lines[i]?.text ?? ''
+      const next = lines[i + 1]?.text ?? ''
+      if (!/^[\p{Lu}\d][\w\/. -]{2,40}\s+\d{1,3}\s+[\d.,]+\s*[€$£]?$/u.test(t)) continue
+      if (next.length === 0 || isLabelLike(next) || /[\d.,]+\s*[€$£]?$/.test(next)) continue
+      if (!descValid(next) || containsOwnName(next)) continue
+      description = f(next, 0.6)
+      break
+    }
+  }
+  if (description.value === null) {
     // ALL-CAPS product line (Apple style)
     for (const line of lines) {
       const t = line.text
@@ -921,7 +1298,8 @@ export function parseInvoiceText(
       if (!t.includes(' ')) continue
       if ((t.match(/[A-Z]/g) ?? []).length < 8) continue
       if (containsOwnName(t) || isSectionHeader(t) || isLabelLike(t)) continue
-      if (/RECHNUNG|INVOICE|GERMANY|IBAN|WEEE|COPY|GMBH/.test(t)) continue
+      if (/RECHNUNG|INVOICE|GERMANY|IBAN|WEEE|COPY|GMBH|VAT|UST|OSS|EIN\b|STR\.|STRASSE/.test(t)) continue
+      if (/,\s*\d{4,6}\s*$/.test(t) || /\b\d{5}\b/.test(t)) continue
       description = f(t, 0.5)
       break
     }
@@ -946,10 +1324,28 @@ export function parseInvoiceText(
       description = f(bestPair.text, corroborated ? 0.85 : 0.6)
     }
   }
+  if (description.value === null) {
+    // OCR email receipts: item name and currency-adorned price on one line
+    const totalsWord =
+      /\b(?:summe|(?:zahl|gesamt|rechnungs|netto|brutto)?betrag|total|netto|brutto|zwischensumme|ust|mwst|steuer|taxes|versand|shipping|subtotal|rabatt|skonto|punkte|visa|iban)\b|str(?:\.|a[sß]se)\s*\d/i
+    let bestInline: { text: string; amt: number } | null = null
+    for (const line of lines) {
+      const m = /^(.{6,60}?)\s+(?:[€$£]\s?[\d.,]+|[\d.,]+\s?[€$£])$/.exec(line.text)
+      if (!m) continue
+      const cand = cleanItemText(m[1] ?? '')
+      const amt = amountInText(line.text.slice((m[1] ?? '').length), hint)
+      if (!amt || amt.value <= 0) continue
+      if (!descValid(cand) || totalsWord.test(cand) || isLabelLike(m[1] ?? '')) continue
+      if (containsOwnName(cand) || DATE_LIKE.test(cand) || cand.includes('@')) continue
+      if (!bestInline || amt.value > bestInline.amt) bestInline = { text: cand, amt: amt.value }
+    }
+    if (bestInline) description = f(bestInline.text, 0.55)
+  }
   if (description.value !== null) {
     // cleanup: trailing SKU ("… | B088K26FRV"), doubled spaces, dangling separators
     const cleaned = description.value
       .replace(/\s*\|\s*[A-Z0-9-]{6,}\s*$/, '')
+      .replace(/\s{2,}[A-Z0-9-]{8,}\s*$/, '')
       .replace(/\s{2,}/g, ' ')
       .replace(/[\s,;:–-]+$/, '')
       .trim()
