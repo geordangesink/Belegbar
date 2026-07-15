@@ -83,6 +83,17 @@ describe('parseInvoiceText — Stripe-style receipts', () => {
     expect(critical(r)).toEqual([])
   })
 
+  it('reads the issuer address across the blank line pdf.js inserts after the company name', () => {
+    // real pdf.js text layers often emit an empty line between the
+    // company-name line and its address block (Railway/Expo receipts);
+    // losing the block loses the issuer country and misclassifies the VAT
+    const spaced = STRIPE_USD_RECEIPT.replace('Nimbus AI, LLC\n', 'Nimbus AI, LLC\n\n')
+    const r = parseInvoiceText(spaced, expenseOpts)
+    expect(r.issuerName.value).toBe('Nimbus AI, LLC')
+    expect(r.issuerAddress.value).toContain('United States')
+    expect(r.issuerCountryCode.value).toBe('US')
+  })
+
   it('flags refunds as a warning', () => {
     const r = parseInvoiceText(STRIPE_REFUND_RECEIPT, expenseOpts)
     expect(codes(r)).toContain('refund_detected')

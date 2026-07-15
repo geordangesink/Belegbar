@@ -133,6 +133,7 @@
     "attentionRates": "{{count}} Wechselkurse fehlen",
     "attentionRates_one": "1 Wechselkurs fehlt",
     "recentTitle": "Zuletzt importiert",
+    "recentAllPeriods": "alle Zeiträume",
     "recentEmpty": "Noch keine Belege. Lege oben einfach PDFs in eine der beiden Zonen – den Rest übernimmt Belegbar."
   },
   "import": {
@@ -147,11 +148,8 @@
   },
   "documents": {
     "title": "Belege",
-    "filterYear": "Jahr",
-    "filterQuarter": "Quartal",
     "filterDirection": "Art",
-    "filterStatus": "Status",
-    "filterTreatment": "USt.-Behandlung",
+    "allPeriodsChip": "Alle Zeiträume",
     "clientFilterPayment": "Zahlungsdatum fehlt",
     "clientFilterRate": "Wechselkurs fehlt",
     "clearFilter": "Filter entfernen",

@@ -141,7 +141,13 @@ export function Overview(): ReactNode {
       ) : null}
 
       <section className="mt-32">
-        <h2 className="section-title">{t('overview.recentTitle')}</h2>
+        <h2 className="section-title">
+          {t('overview.recentTitle')}
+          <span style={{ fontWeight: 400, opacity: 0.75 }}>
+            {' · '}
+            {t('overview.recentAllPeriods')}
+          </span>
+        </h2>
         {recent.length === 0 ? (
           <div className="card empty-state">{t('overview.recentEmpty')}</div>
         ) : (

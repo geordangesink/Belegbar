@@ -89,6 +89,28 @@ export function TourOverlay({
     setIndex(next)
   }
 
+  // A route change (nav click mid-tour, slow screen mount) unmounts the
+  // target and would freeze the spotlight on a stale rect — watch for
+  // disconnection and re-run the step's activation (incl. its navigation).
+  const [relocateNonce, setRelocateNonce] = useState(0)
+  const relocationsRef = useRef(0)
+  useEffect(() => {
+    relocationsRef.current = 0
+  }, [index])
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const el = targetRef.current
+      if (el && !el.isConnected) {
+        targetRef.current = null
+        if (relocationsRef.current < 3) {
+          relocationsRef.current += 1
+          setRelocateNonce((n) => n + 1)
+        }
+      }
+    }, 300)
+    return () => window.clearInterval(timer)
+  }, [])
+
   // Resolve the step: navigate, then poll for the target and measure it.
   useEffect(() => {
     let cancelled = false
@@ -157,7 +179,7 @@ export function TourOverlay({
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index, steps])
+  }, [index, steps, relocateNonce])
 
   // Keep the spotlight glued to the target on resize and scroll.
   useEffect(() => {

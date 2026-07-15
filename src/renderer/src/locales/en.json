@@ -133,6 +133,7 @@
     "attentionRates": "{{count}} exchange rates missing",
     "attentionRates_one": "1 exchange rate missing",
     "recentTitle": "Recently imported",
+    "recentAllPeriods": "all periods",
     "recentEmpty": "No documents yet. Just drop PDFs into one of the two zones above – Belegbar takes care of the rest."
   },
   "import": {
@@ -147,11 +148,8 @@
   },
   "documents": {
     "title": "Documents",
-    "filterYear": "Year",
-    "filterQuarter": "Quarter",
     "filterDirection": "Type",
-    "filterStatus": "Status",
-    "filterTreatment": "VAT treatment",
+    "allPeriodsChip": "All periods",
     "clientFilterPayment": "Payment date missing",
     "clientFilterRate": "Exchange rate missing",
     "clearFilter": "Clear filter",

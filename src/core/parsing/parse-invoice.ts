@@ -1012,9 +1012,16 @@ export function parseInvoiceText(
       } else {
         const collectAddrAfter = (start: number): string[] => {
           const addr: string[] = []
+          let leadingBlanks = 0
           for (let j = start + 1; j < lines.length && addr.length < 6; j++) {
             const u = lines[j]?.text ?? ''
-            if (u.length === 0) break
+            if (u.length === 0) {
+              // pdf.js often emits a blank line between the company-name
+              // line and its address block (Stripe receipts) — tolerate a
+              // short leading gap, but never a gap inside the block
+              if (addr.length > 0 || ++leadingBlanks > 2) break
+              continue
+            }
             if (u === namePart) continue // letterhead repeats the company name
             if (u.includes('@') || /(?:^|\s)(?:VAT|USt\.?|Ust-?Id\S*|MwSt\.?|EIN)\b/i.test(u)) break
             if (/^\+?[\d\s()\/.-]{7,}$/.test(u)) break // phone/fax line

@@ -12,14 +12,13 @@ import { api, errorToKey } from '../lib/api'
 import { emitDataChanged, useDataVersion } from '../lib/bus'
 import { activeLanguage } from '../i18n'
 import { formatIsoDate, todayIso } from '../lib/format'
-import { usePeriod, yearOptions } from '../context/PeriodContext'
+import { usePeriod } from '../context/PeriodContext'
 import { useRouter, type ClientDocFilter, type DocumentsPreset } from '../context/RouterContext'
 import { useSettings } from '../context/SettingsContext'
 import { useToast } from '../context/ToastContext'
 import { AttentionBadge, ATTENTION_LEVELS } from '../components/AttentionBadge'
 import { DocumentRow } from '../components/DocumentRow'
 import { ConfirmDialog, Dialog } from '../components/Dialog'
-import { VAT_TREATMENT_OPTIONS, treatmentLabelKey } from '../lib/vatTreatments'
 import { Icon } from '../components/Icon'
 
 /** Choices of the select-by-kind menu next to the select-all checkbox. */
@@ -47,11 +46,8 @@ const PAGE_SIZE = 100
 
 interface Filters {
   search: string
-  year: number | null
-  quarter: 1 | 2 | 3 | 4 | null
   direction: DocumentDirection | ''
   reviewStatus: ReviewStatus | ''
-  vatTreatmentCode: string
   includeDeleted: boolean
   clientFilter: ClientDocFilter | null
 }
@@ -69,16 +65,18 @@ function needsExchangeRate(doc: TaxDocument): boolean {
 }
 
 // Filters survive navigating into a document and back (module-level memory;
-// intentionally reset only by a new preset or app restart).
-const filterMemory: { filters: Filters | null; search: string } = {
+// intentionally reset only by a new preset or app restart — a fresh start
+// therefore never sees stale shapes from earlier sessions).
+const filterMemory: { filters: Filters | null; search: string; allPeriods: boolean } = {
   filters: null,
-  search: ''
+  search: '',
+  allPeriods: false
 }
 
 export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   const { t } = useTranslation()
   const lang = activeLanguage()
-  const { year: periodYear, quarter: periodQuarter } = usePeriod()
+  const { year: periodYear, quarter: periodQuarter, setQuarter } = usePeriod()
   const { settings } = useSettings()
   const { push } = useRouter()
   const toast = useToast()
@@ -89,14 +87,16 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
       ? filterMemory.filters
       : {
           search: preset?.search ?? '',
-          year: periodYear,
-          quarter: periodQuarter,
           direction: preset?.direction ?? '',
           reviewStatus: preset?.reviewStatus ?? '',
-          vatTreatmentCode: '',
           includeDeleted: false,
           clientFilter: preset?.clientFilter ?? null
         }
+  )
+  // Local override: ignore the global period entirely ("alle Zeiträume").
+  // Shown as a dismissible chip while active.
+  const [allPeriods, setAllPeriods] = useState(() =>
+    !preset && filterMemory.filters ? filterMemory.allPeriods : false
   )
   const [docs, setDocs] = useState<TaxDocument[]>([])
   const [total, setTotal] = useState(0)
@@ -139,9 +139,11 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   useEffect(() => {
     filterMemory.filters = filters
     filterMemory.search = searchText
-  }, [filters, searchText])
+    filterMemory.allPeriods = allPeriods
+  }, [filters, searchText, allPeriods])
 
-  // A new preset (e.g. from global search or overview links) resets the filters.
+  // A new preset (e.g. from global search or overview links) resets the
+  // filters and uses the global period as-is.
   useEffect(() => {
     if (!preset) return
     setSearchText(preset.search ?? '')
@@ -152,6 +154,7 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
       reviewStatus: preset.reviewStatus ?? '',
       clientFilter: preset.clientFilter ?? null
     }))
+    setAllPeriods(false)
     setOffset(0)
   }, [preset])
 
@@ -171,11 +174,14 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
           offset: filters.clientFilter ? 0 : nextOffset
         }
         if (filters.search.trim() !== '') filter.search = filters.search.trim()
-        if (filters.year !== null) filter.year = filters.year
-        if (filters.quarter !== null) filter.quarter = filters.quarter
+        // The global topbar period drives the list — unless the local
+        // "alle Zeiträume" override is active.
+        if (!allPeriods) {
+          filter.year = periodYear
+          if (periodQuarter !== null) filter.quarter = periodQuarter
+        }
         if (filters.direction !== '') filter.direction = filters.direction
         if (filters.reviewStatus !== '') filter.reviewStatus = filters.reviewStatus
-        if (filters.vatTreatmentCode !== '') filter.vatTreatmentCode = filters.vatTreatmentCode
         if (filters.includeDeleted) filter.includeDeleted = true
         const result = await api().listDocuments(filter)
         setDocs((current) => (append ? [...current, ...result.documents] : result.documents))
@@ -190,7 +196,7 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
         toast.error(t(errorToKey(err)))
       }
     },
-    [filters, toast, t]
+    [filters, allPeriods, periodYear, periodQuarter, toast, t]
   )
 
   useEffect(() => {
@@ -198,6 +204,44 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
     setSelection(new Set())
     void fetchDocs(0, false)
   }, [fetchDocs, dataVersion])
+
+  // The trash toggle is only offered when the trash actually holds documents:
+  // probe totals with and without deleted once per data change.
+  const [hasTrash, setHasTrash] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const [withDeleted, activeOnly] = await Promise.all([
+          api().listDocuments({ includeDeleted: true, limit: 1 }),
+          api().listDocuments({ limit: 1 })
+        ])
+        if (!cancelled) setHasTrash(withDeleted.total > activeOnly.total)
+      } catch {
+        if (!cancelled) setHasTrash(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [dataVersion])
+
+  // Empty-state escape hatch: switch the GLOBAL selector to the whole year;
+  // if the current query is empty even for the whole year, fall back to
+  // ignoring the period entirely (dismissible "alle Zeiträume" chip).
+  const showAllYears = useCallback(async () => {
+    setQuarter(null)
+    try {
+      const probe: Record<string, unknown> = { year: periodYear, limit: 1 }
+      if (filters.search.trim() !== '') probe.search = filters.search.trim()
+      if (filters.direction !== '') probe.direction = filters.direction
+      if (filters.reviewStatus !== '') probe.reviewStatus = filters.reviewStatus
+      const yearProbe = await api().listDocuments(probe)
+      if (yearProbe.total === 0) setAllPeriods(true)
+    } catch (err) {
+      toast.error(t(errorToKey(err)))
+    }
+  }, [filters, periodYear, setQuarter, toast, t])
 
   const visibleDocs = useMemo(() => {
     let list = docs
@@ -327,34 +371,6 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
         />
         <select
           className="select"
-          aria-label={t('documents.filterYear')}
-          value={filters.year ?? ''}
-          onChange={(e) => set('year', e.target.value === '' ? null : Number(e.target.value))}
-        >
-          <option value="">{t('common.all')}</option>
-          {yearOptions(settings.defaultYear).map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
-        <select
-          className="select"
-          aria-label={t('documents.filterQuarter')}
-          value={filters.quarter ?? ''}
-          onChange={(e) =>
-            set('quarter', e.target.value === '' ? null : (Number(e.target.value) as 1 | 2 | 3 | 4))
-          }
-        >
-          <option value="">{t('period.fullYear')}</option>
-          {[1, 2, 3, 4].map((q) => (
-            <option key={q} value={q}>
-              {t('period.q', { n: q })}
-            </option>
-          ))}
-        </select>
-        <select
-          className="select"
           aria-label={t('documents.filterDirection')}
           value={filters.direction}
           onChange={(e) => set('direction', e.target.value as Filters['direction'])}
@@ -363,32 +379,34 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
           <option value="income">{t('direction.income_plural')}</option>
           <option value="expense">{t('direction.expense_plural')}</option>
         </select>
-        <select
-          className="select"
-          aria-label={t('documents.filterStatus')}
-          value={filters.reviewStatus}
-          onChange={(e) => set('reviewStatus', e.target.value as Filters['reviewStatus'])}
-        >
-          <option value="">{t('common.all')}</option>
-          {(['needs_review', 'confirmed', 'processing', 'failed'] as const).map((s) => (
-            <option key={s} value={s}>
-              {t(`reviewStatus.${s}`)}
-            </option>
-          ))}
-        </select>
-        <select
-          className="select"
-          aria-label={t('documents.filterTreatment')}
-          value={filters.vatTreatmentCode}
-          onChange={(e) => set('vatTreatmentCode', e.target.value)}
-        >
-          <option value="">{t('documents.filterTreatment')}</option>
-          {VAT_TREATMENT_OPTIONS.map((opt) => (
-            <option key={opt.code} value={opt.code}>
-              {t(treatmentLabelKey(opt.code))}
-            </option>
-          ))}
-        </select>
+        {filters.reviewStatus !== '' ? (
+          <span className="chip chip-neutral">
+            {t(`reviewStatus.${filters.reviewStatus}`)}
+            <button
+              type="button"
+              className="icon-btn"
+              style={{ width: 18, height: 18 }}
+              aria-label={t('documents.clearFilter')}
+              onClick={() => set('reviewStatus', '')}
+            >
+              <Icon name="close" size={10} />
+            </button>
+          </span>
+        ) : null}
+        {allPeriods ? (
+          <span className="chip chip-neutral">
+            {t('documents.allPeriodsChip')}
+            <button
+              type="button"
+              className="icon-btn"
+              style={{ width: 18, height: 18 }}
+              aria-label={t('documents.clearFilter')}
+              onClick={() => setAllPeriods(false)}
+            >
+              <Icon name="close" size={10} />
+            </button>
+          </span>
+        ) : null}
         {filters.clientFilter ? (
           <span className="chip chip-warn">
             {filters.clientFilter === 'payment_missing'
@@ -405,25 +423,23 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
             </button>
           </span>
         ) : null}
-        <label className="checkbox-row small muted" style={{ marginLeft: 'auto' }}>
-          <input
-            type="checkbox"
-            checked={filters.includeDeleted}
-            onChange={(e) => set('includeDeleted', e.target.checked)}
-          />
-          {t('documents.showTrash')}
-        </label>
+        {hasTrash ? (
+          <label className="checkbox-row small muted" style={{ marginLeft: 'auto' }}>
+            <input
+              type="checkbox"
+              checked={filters.includeDeleted}
+              onChange={(e) => set('includeDeleted', e.target.checked)}
+            />
+            {t('documents.showTrash')}
+          </label>
+        ) : null}
       </div>
 
       {activeDocs.length === 0 && trashedDocs.length === 0 ? (
-        (filters.year !== null || filters.quarter !== null) && hasAnyDocuments === true ? (
+        !allPeriods && hasAnyDocuments === true ? (
           <div className="card empty-state">
             <p>{t('documents.emptyFiltered')}</p>
-            <button
-              type="button"
-              className="btn mt-16"
-              onClick={() => setFilters((f) => ({ ...f, year: null, quarter: null }))}
-            >
+            <button type="button" className="btn mt-16" onClick={() => void showAllYears()}>
               {t('documents.showAllYears')}
             </button>
           </div>
