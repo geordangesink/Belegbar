@@ -1,9 +1,11 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TaxDocument } from '@shared/domain'
+import { attentionForDocument } from '@core/review/attention'
 import { activeLanguage } from '../i18n'
 import { formatCurrencyAmount, formatEur, formatIsoDate } from '../lib/format'
-import { DirectionChip, ReviewStatusGlyph } from './StatusBits'
+import { AttentionBadge } from './AttentionBadge'
+import { DirectionChip } from './StatusBits'
 import { treatmentLabelKey } from '../lib/vatTreatments'
 
 export function counterpartyName(doc: TaxDocument): string | null {
@@ -28,6 +30,7 @@ export function DocumentRow({
   const { t } = useTranslation()
   const lang = activeLanguage()
 
+  const attention = attentionForDocument(doc)
   const company = counterpartyName(doc) ?? doc.storedFilename
   const isEur = (doc.originalCurrency ?? 'EUR') === 'EUR'
   const gross = doc.grossAmountOriginal
@@ -58,7 +61,7 @@ export function DocumentRow({
           onChange={() => onToggleSelect?.(doc.id)}
         />
       ) : null}
-      <ReviewStatusGlyph status={doc.reviewStatus} />
+      <AttentionBadge level={attention} />
       <DirectionChip direction={doc.direction} />
       <div className="doc-main">
         <div className="doc-name">{company}</div>
@@ -66,7 +69,7 @@ export function DocumentRow({
           {[
             doc.invoiceDate ? formatIsoDate(doc.invoiceDate, lang) : '—',
             treatment,
-            t(`reviewStatus.${doc.reviewStatus}`)
+            t(`attention.label.${attention}`)
           ]
             .filter(Boolean)
             .join(' · ')}

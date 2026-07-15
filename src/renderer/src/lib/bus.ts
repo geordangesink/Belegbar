@@ -25,3 +25,21 @@ export function useDataVersion(): number {
   useEffect(() => onDataChanged(() => setVersion((v) => v + 1)), [])
   return version
 }
+
+let llmRefreshWired = false
+let lastLlmQueueLength = 0
+
+/**
+ * App-level wiring, subscribed exactly once: when the local LLM check queue
+ * shrinks, a check finished and may have changed a document's issues →
+ * bump the data version so every screen refetches and all status badges
+ * stay identical across surfaces.
+ */
+export function wireLlmDataRefresh(): void {
+  if (llmRefreshWired) return
+  llmRefreshWired = true
+  window.belegbar.onLlmProgress((status) => {
+    if (status.queueLength < lastLlmQueueLength) emitDataChanged()
+    lastLlmQueueLength = status.queueLength
+  })
+}

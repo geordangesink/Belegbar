@@ -43,6 +43,12 @@ export interface LlmCheckerDeps {
   log: Logger
   /** called on queue changes and after each finished document (llmProgress) */
   notify: () => void
+  /**
+   * Optional hook fired when the queue transitions to empty after at least
+   * one successfully processed document since it last went idle. Skipped
+   * and failed documents do not count. Absent = zero behavior change.
+   */
+  onQueueDrained?: (processedCount: number) => void
   /** test injection points */
   infer?: LlmInfer
   timeoutMs?: number
@@ -62,6 +68,8 @@ export class LlmChecker {
   private processing: string | null = null
   private running = false
   private disposed = false
+  /** docs fully checked since the queue last went idle (onQueueDrained) */
+  private processedSinceIdle = 0
 
   private runtime: LlmRuntime | null = null
   private runtimePromise: Promise<LlmRuntime> | null = null
@@ -129,12 +137,19 @@ export class LlmChecker {
     if (this.running || this.disposed) return
     const id = this.queue.shift()
     if (id === undefined) {
+      // queue just went idle — report the run when it processed anything
+      const processed = this.processedSinceIdle
+      this.processedSinceIdle = 0
+      if (processed > 0) this.deps.onQueueDrained?.(processed)
       this.scheduleIdleUnload()
       return
     }
     this.running = true
     this.processing = id
     void this.checkOne(id)
+      .then((processed) => {
+        if (processed) this.processedSinceIdle++
+      })
       .catch((err) => {
         this.deps.log.warn('llm_check_failed', {
           documentId: id,
@@ -150,9 +165,10 @@ export class LlmChecker {
       })
   }
 
-  private async checkOne(id: string): Promise<void> {
+  /** @returns true when the document was fully checked (verdict recorded) */
+  private async checkOne(id: string): Promise<boolean> {
     const doc = this.deps.repos.documents.getById(id)
-    if (!this.isCheckable(doc)) return
+    if (!this.isCheckable(doc)) return false
 
     const startedAt = Date.now()
     const prompt = buildCheckPrompt(doc)
@@ -175,7 +191,7 @@ export class LlmChecker {
           code: err instanceof Error ? err.message : 'unknown'
         })
       }
-      return
+      return false
     } finally {
       clearTimeout(timer)
     }
@@ -183,7 +199,7 @@ export class LlmChecker {
     const fields = parseModelOutput(raw)
     if (fields === null || Object.keys(fields).length === 0) {
       this.deps.log.warn('llm_output_unparseable', { documentId: id })
-      return
+      return false
     }
 
     const result: LlmCheckResult = {
@@ -196,7 +212,7 @@ export class LlmChecker {
 
     // reload: the document may have been edited/confirmed during inference
     const fresh = this.deps.repos.documents.getById(id)
-    if (!this.isCheckable(fresh)) return
+    if (!this.isCheckable(fresh)) return false
 
     const merge = mergeVerdict(fresh, result)
     if (merge.changed) {
@@ -233,6 +249,7 @@ export class LlmChecker {
       changed: merge.changed,
       durationMs: result.durationMs
     })
+    return true
   }
 
   private infer(prompt: string, signal: AbortSignal): Promise<string> {

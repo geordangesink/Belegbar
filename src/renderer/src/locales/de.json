@@ -81,6 +81,22 @@
     "missing": "Fehlt",
     "manual": "Manuell"
   },
+  "attention": {
+    "label": {
+      "confirmed": "Bestätigt",
+      "ok": "Alles klar",
+      "minor": "Kleinigkeiten unklar",
+      "warning": "Bitte prüfen",
+      "critical": "Problem"
+    },
+    "tooltip": {
+      "confirmed": "Du hast diesen Beleg bestätigt.",
+      "ok": "Zuverlässig erkannt – nichts zu prüfen.",
+      "minor": "Ein paar unwichtige Angaben sind unsicher – ohne Auswirkung auf deine Steuern.",
+      "warning": "Möglicherweise steuerlich relevanter Punkt – bitte prüfe den Beleg.",
+      "critical": "Echtes Problem – der Beleg zählt noch nicht in deine Summen."
+    }
+  },
   "processing": {
     "queued": "In Warteschlange",
     "copying": "Datei wird übernommen …",
@@ -121,6 +137,7 @@
   },
   "import": {
     "headerProgress": "{{done}} von {{total}} verarbeitet",
+    "batchProgress": "Gesamtfortschritt: {{done}} von {{total}} Dateien",
     "issueCount": "{{count}} Hinweise",
     "issueCount_one": "1 Hinweis",
     "openDocument": "Beleg öffnen",
@@ -150,6 +167,15 @@
     "bulkDelete": "Löschen",
     "bulkDeleteConfirmTitle": "Belege löschen?",
     "bulkDeleteConfirmBody": "{{count}} Belege werden in den Papierkorb verschoben. Die PDF-Dateien bleiben erhalten.",
+    "selectMenuLabel": "Auswählen",
+    "selectMenuAll": "Alle",
+    "selectMenuOk": "Alles klar",
+    "selectMenuMinor": "Gelbe Ringe",
+    "selectMenuRings": "Ringe",
+    "selectMenuTriangles": "Dreiecke",
+    "selectMenuNone": "Keine",
+    "bulkConfirmWarningTitle": "Belege bestätigen?",
+    "bulkConfirmWarningBody": "Enthält steuerlich relevante Hinweise — trotzdem bestätigen?",
     "showTrash": "Papierkorb anzeigen",
     "trashTitle": "Papierkorb",
     "deletedOn": "Gelöscht am {{date}}",

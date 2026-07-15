@@ -81,6 +81,22 @@
     "missing": "Missing",
     "manual": "Manual"
   },
+  "attention": {
+    "label": {
+      "confirmed": "Confirmed",
+      "ok": "All good",
+      "minor": "Small uncertainties",
+      "warning": "Needs review",
+      "critical": "Problem"
+    },
+    "tooltip": {
+      "confirmed": "You confirmed this document.",
+      "ok": "Recognized reliably – nothing to check.",
+      "minor": "A few unimportant readings are uncertain – no effect on your taxes.",
+      "warning": "Potentially tax-relevant point – please review this document.",
+      "critical": "Real problem – this document does not count towards your totals yet."
+    }
+  },
   "processing": {
     "queued": "Queued",
     "copying": "Copying file …",
@@ -121,6 +137,7 @@
   },
   "import": {
     "headerProgress": "{{done}} of {{total}} processed",
+    "batchProgress": "Overall progress: {{done}} of {{total}} files",
     "issueCount": "{{count}} notes",
     "issueCount_one": "1 note",
     "openDocument": "Open document",
@@ -150,6 +167,15 @@
     "bulkDelete": "Delete",
     "bulkDeleteConfirmTitle": "Delete documents?",
     "bulkDeleteConfirmBody": "{{count}} documents will be moved to the trash. The PDF files are kept.",
+    "selectMenuLabel": "Select",
+    "selectMenuAll": "All",
+    "selectMenuOk": "All good",
+    "selectMenuMinor": "Yellow rings",
+    "selectMenuRings": "Rings",
+    "selectMenuTriangles": "Triangles",
+    "selectMenuNone": "None",
+    "bulkConfirmWarningTitle": "Confirm documents?",
+    "bulkConfirmWarningBody": "Contains potentially tax-relevant notes — confirm anyway?",
     "showTrash": "Show trash",
     "trashTitle": "Trash",
     "deletedOn": "Deleted on {{date}}",

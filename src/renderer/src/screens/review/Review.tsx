@@ -9,9 +9,11 @@ import { activeLanguage } from '../../i18n'
 import { useRouter } from '../../context/RouterContext'
 import { useSettings } from '../../context/SettingsContext'
 import { useToast } from '../../context/ToastContext'
+import { attentionForDocument } from '@core/review/attention'
+import { AttentionBadge } from '../../components/AttentionBadge'
 import { ConfirmDialog } from '../../components/Dialog'
 import { Icon } from '../../components/Icon'
-import { DirectionChip, ReviewStatusChip } from '../../components/StatusBits'
+import { DirectionChip } from '../../components/StatusBits'
 import { PdfViewer } from '../../components/pdf/PdfViewer'
 import { AuditDrawer } from './AuditDrawer'
 import { effective, type Patch, type PatchKey } from './FieldRow'
@@ -230,7 +232,7 @@ export function Review({ id }: { id: string }): ReactNode {
             <Icon name="back" />
           </button>
           <DirectionChip direction={doc.direction} />
-          <ReviewStatusChip status={doc.reviewStatus} />
+          <AttentionBadge level={attentionForDocument(doc)} withLabel />
           {llmCheck !== null && llmDisagreementCount(llmCheck) === 0 ? (
             <span className="chip chip-neutral">
               <span aria-hidden="true">✓</span> {t('llm.checkedChip')}

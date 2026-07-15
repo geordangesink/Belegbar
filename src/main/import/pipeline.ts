@@ -57,6 +57,20 @@ interface QueuedFile {
   sourcePath: string
   direction: DocumentDirection
   duplicateAction: DuplicateAction
+  /** guards the batch bookkeeping against double settlement */
+  settled?: boolean
+}
+
+/** Outcome counts of one finished import batch (duplicates only in total). */
+export interface BatchSummary {
+  total: number
+  ok: number
+  review: number
+  failed: number
+}
+
+interface BatchTracker extends BatchSummary {
+  outstanding: number
 }
 
 export interface PipelineDeps {
@@ -68,6 +82,13 @@ export interface PipelineDeps {
   log: Logger
   /** opt-in local LLM double-check; absent or not ready = zero behavior change */
   llm?: { isReady(): boolean; enqueue(documentId: string): boolean }
+  /**
+   * Optional hook fired once per import batch when every queued file has
+   * settled (completed / completed_with_warnings / failed / duplicate).
+   * 'ok' counts plain completions, 'review' completions with warnings;
+   * duplicates count into total only. Absent = zero behavior change.
+   */
+  onBatchDone?: (summary: BatchSummary) => void
 }
 
 function issue(
@@ -90,6 +111,8 @@ function toPosixRelative(...segments: string[]): string {
 export class ImportPipeline {
   private readonly queue: QueuedFile[] = []
   private running = 0
+  /** per-importId outstanding/outcome counts for the onBatchDone hook */
+  private readonly batches = new Map<string, BatchTracker>()
 
   constructor(private readonly deps: PipelineDeps) {}
 
@@ -101,6 +124,7 @@ export class ImportPipeline {
     const importId = uuidv4()
     const accepted: { path: string; fileId: string }[] = []
     const rejected: { path: string; reasonKey: string }[] = []
+    const batch: QueuedFile[] = []
 
     for (const sourcePath of payload.paths) {
       const reasonKey = await this.validateSourcePath(sourcePath)
@@ -124,9 +148,14 @@ export class ImportPipeline {
         direction: payload.direction,
         duplicateAction: payload.duplicateAction ?? 'ask'
       }
-      this.queue.push(queued)
+      batch.push(queued)
       this.emitProgress(queued, 'queued', { issues: [] })
     }
+
+    // arm and enqueue the whole batch at once: a concurrently running pump
+    // (previous batch) must never settle file 1 before file 2 is armed
+    for (const queued of batch) this.armBatch(queued.importId)
+    this.queue.push(...batch)
 
     this.pump()
     return { importId, accepted, rejected }
@@ -355,6 +384,7 @@ export class ImportPipeline {
       // an explicit retry of a duplicate means the user wants it anyway
       duplicateAction: row.status === 'duplicate' ? 'import_anyway' : 'ask'
     }
+    this.armBatch(row.importId)
     this.queue.push(queued)
     this.emitProgress(queued, 'queued', { issues: [] })
     this.pump()
@@ -430,11 +460,55 @@ export class ImportPipeline {
             fileId: next.fileId,
             errorKey: err instanceof Error ? err.message : 'internal_error'
           })
+          // a file must never leave its batch hanging (settle is idempotent)
+          this.settleFile(next, 'failed')
         })
         .finally(() => {
           this.running--
           this.pump()
         })
+    }
+  }
+
+  /** Register one more outstanding file for an importId (start and retry). */
+  private armBatch(importId: string): void {
+    const tracker = this.batches.get(importId) ?? {
+      outstanding: 0,
+      total: 0,
+      ok: 0,
+      review: 0,
+      failed: 0
+    }
+    tracker.outstanding++
+    tracker.total++
+    this.batches.set(importId, tracker)
+  }
+
+  /**
+   * Record a file's terminal outcome. When the batch's last outstanding file
+   * settles, the tracker is dropped and onBatchDone (if provided) fires once.
+   */
+  private settleFile(
+    file: QueuedFile,
+    outcome: 'ok' | 'review' | 'failed' | 'duplicate'
+  ): void {
+    if (file.settled) return
+    file.settled = true
+    const tracker = this.batches.get(file.importId)
+    if (!tracker) return
+    if (outcome === 'ok') tracker.ok++
+    else if (outcome === 'review') tracker.review++
+    else if (outcome === 'failed') tracker.failed++
+    // duplicates count into total only
+    tracker.outstanding--
+    if (tracker.outstanding <= 0) {
+      this.batches.delete(file.importId)
+      this.deps.onBatchDone?.({
+        total: tracker.total,
+        ok: tracker.ok,
+        review: tracker.review,
+        failed: tracker.failed
+      })
     }
   }
 
@@ -477,6 +551,7 @@ export class ImportPipeline {
       this.deps.repos.importJobs.update(file.fileId, { status: 'failed', errorKey })
       this.emitProgress(file, 'failed', { errorKey, issues: [] })
       this.deps.log.warn('import_failed', { fileId: file.fileId, errorKey })
+      this.settleFile(file, 'failed')
     }
 
     try {
@@ -508,6 +583,7 @@ export class ImportPipeline {
           issues: [duplicateIssue],
           documentId: existing.id
         })
+        this.settleFile(file, 'duplicate')
         return // source untouched, no new record
       }
 
@@ -706,6 +782,7 @@ export class ImportPipeline {
         status: finalStatus,
         issueCount: issues.length
       })
+      this.settleFile(file, finalStatus === 'completed' ? 'ok' : 'review')
     } catch (err) {
       this.deps.log.error('import_error', {
         fileId: file.fileId,

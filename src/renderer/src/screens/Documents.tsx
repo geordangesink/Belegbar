@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { DocumentDirection, LlmStatus, ReviewStatus, TaxDocument } from '@shared/domain'
+import type {
+  AttentionLevel,
+  DocumentDirection,
+  LlmStatus,
+  ReviewStatus,
+  TaxDocument
+} from '@shared/domain'
+import { attentionForDocument } from '@core/review/attention'
 import { api, errorToKey } from '../lib/api'
 import { emitDataChanged, useDataVersion } from '../lib/bus'
 import { activeLanguage } from '../i18n'
@@ -9,10 +16,32 @@ import { usePeriod, yearOptions } from '../context/PeriodContext'
 import { useRouter, type ClientDocFilter, type DocumentsPreset } from '../context/RouterContext'
 import { useSettings } from '../context/SettingsContext'
 import { useToast } from '../context/ToastContext'
+import { AttentionBadge, ATTENTION_LEVELS } from '../components/AttentionBadge'
 import { DocumentRow } from '../components/DocumentRow'
 import { ConfirmDialog, Dialog } from '../components/Dialog'
 import { VAT_TREATMENT_OPTIONS, treatmentLabelKey } from '../lib/vatTreatments'
 import { Icon } from '../components/Icon'
+
+/** Choices of the select-by-kind menu next to the select-all checkbox. */
+const SELECT_MENU_CHOICES = ['all', 'ok', 'minor', 'rings', 'triangles', 'none'] as const
+type SelectMenuChoice = (typeof SELECT_MENU_CHOICES)[number]
+
+function selectChoiceMatches(choice: SelectMenuChoice, level: AttentionLevel): boolean {
+  switch (choice) {
+    case 'all':
+      return true
+    case 'ok':
+      return level === 'ok'
+    case 'minor':
+      return level === 'minor'
+    case 'rings':
+      return level === 'ok' || level === 'minor'
+    case 'triangles':
+      return level === 'warning' || level === 'critical'
+    case 'none':
+      return false
+  }
+}
 
 const PAGE_SIZE = 100
 
@@ -76,6 +105,8 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   const [pickDateFor, setPickDateFor] = useState<string[] | null>(null)
   const [pickedDate, setPickedDate] = useState(todayIso())
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[] | null>(null)
+  const [confirmBulkIds, setConfirmBulkIds] = useState<string[] | null>(null)
+  const [attentionFilter, setAttentionFilter] = useState<ReadonlySet<AttentionLevel>>(new Set())
 
   const [searchText, setSearchText] = useState(
     !preset && filterMemory.filters ? filterMemory.search : (preset?.search ?? '')
@@ -166,8 +197,65 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
     return list
   }, [docs, filters.clientFilter])
 
-  const activeDocs = visibleDocs.filter((d) => d.deletedAt === null)
+  const activeDocs = useMemo(() => visibleDocs.filter((d) => d.deletedAt === null), [visibleDocs])
   const trashedDocs = visibleDocs.filter((d) => d.deletedAt !== null)
+
+  // The ONE status language: attention level per document (identical to
+  // every other surface), driving badge, filter chips and select menu.
+  const levelOf = useMemo(() => {
+    const map = new Map<string, AttentionLevel>()
+    for (const d of visibleDocs) map.set(d.id, attentionForDocument(d))
+    return map
+  }, [visibleDocs])
+
+  const attentionCounts = useMemo(() => {
+    const counts: Record<AttentionLevel, number> = {
+      confirmed: 0,
+      ok: 0,
+      minor: 0,
+      warning: 0,
+      critical: 0
+    }
+    for (const d of activeDocs) {
+      const level = levelOf.get(d.id)
+      if (level) counts[level] += 1
+    }
+    return counts
+  }, [activeDocs, levelOf])
+
+  const shownDocs = useMemo(
+    () =>
+      attentionFilter.size === 0
+        ? activeDocs
+        : activeDocs.filter((d) => {
+            const level = levelOf.get(d.id)
+            return level !== undefined && attentionFilter.has(level)
+          }),
+    [activeDocs, levelOf, attentionFilter]
+  )
+
+  const toggleAttentionFilter = (level: AttentionLevel): void => {
+    setSelection(new Set())
+    setAttentionFilter((s) => {
+      const next = new Set(s)
+      if (next.has(level)) next.delete(level)
+      else next.add(level)
+      return next
+    })
+  }
+
+  const applySelectMenu = (choice: SelectMenuChoice): void => {
+    setSelection(
+      new Set(
+        shownDocs
+          .filter((d) => {
+            const level = levelOf.get(d.id)
+            return level !== undefined && selectChoiceMatches(choice, level)
+          })
+          .map((d) => d.id)
+      )
+    )
+  }
 
   const toggleSelect = (id: string): void => {
     setSelection((s) => {
@@ -178,7 +266,7 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
     })
   }
 
-  const allSelected = activeDocs.length > 0 && activeDocs.every((d) => selection.has(d.id))
+  const allSelected = shownDocs.length > 0 && shownDocs.every((d) => selection.has(d.id))
 
   const runBulk = async (fn: () => Promise<void>, successToast?: string): Promise<void> => {
     try {
@@ -193,6 +281,23 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   }
 
   const ids = [...selection]
+
+  const runBulkConfirm = (targets: string[]): void => {
+    void runBulk(async () => {
+      for (const id of targets) await api().confirmDocument(id)
+    }, t('review.confirmedToast'))
+  }
+
+  // ok/minor selections confirm directly; selections containing potentially
+  // tax-relevant problems (warning/critical) get an extra ConfirmDialog.
+  const bulkConfirm = (): void => {
+    const hasTaxRelevant = ids.some((id) => {
+      const level = levelOf.get(id)
+      return level === 'warning' || level === 'critical'
+    })
+    if (hasTaxRelevant) setConfirmBulkIds(ids)
+    else runBulkConfirm(ids)
+  }
 
   const set = <K extends keyof Filters>(key: K, value: Filters[K]): void => {
     setFilters((f) => ({ ...f, [key]: value }))
@@ -305,6 +410,22 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
         <div className="card empty-state">{t('documents.empty')}</div>
       ) : (
         <>
+          <div className="row small mb-8" style={{ flexWrap: 'wrap' }}>
+            {ATTENTION_LEVELS.map((level) => (
+              <button
+                key={level}
+                type="button"
+                className={`attn-chip${attentionFilter.has(level) ? ' active' : ''}`}
+                aria-pressed={attentionFilter.has(level)}
+                aria-label={`${t(`attention.label.${level}`)} (${attentionCounts[level]})`}
+                title={t(`attention.tooltip.${level}`)}
+                onClick={() => toggleAttentionFilter(level)}
+              >
+                <AttentionBadge level={level} size={12} />
+                <span>{attentionCounts[level]}</span>
+              </button>
+            ))}
+          </div>
           <div className="row small muted mb-16">
             <label className="checkbox-row">
               <input
@@ -312,16 +433,35 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
                 checked={allSelected}
                 aria-label={t('documents.selectAll')}
                 onChange={() =>
-                  setSelection(allSelected ? new Set() : new Set(activeDocs.map((d) => d.id)))
+                  setSelection(allSelected ? new Set() : new Set(shownDocs.map((d) => d.id)))
                 }
               />
               {t('documents.selectAll')}
             </label>
+            <select
+              className="select"
+              aria-label={t('documents.selectMenuLabel')}
+              value=""
+              onChange={(e) => {
+                const choice = e.target.value as SelectMenuChoice | ''
+                if (choice !== '') applySelectMenu(choice)
+              }}
+            >
+              <option value="" disabled>
+                {t('documents.selectMenuLabel')}
+              </option>
+              <option value="all">{t('documents.selectMenuAll')}</option>
+              <option value="ok">{t('documents.selectMenuOk')}</option>
+              <option value="minor">{t('documents.selectMenuMinor')}</option>
+              <option value="rings">{t('documents.selectMenuRings')}</option>
+              <option value="triangles">{t('documents.selectMenuTriangles')}</option>
+              <option value="none">{t('documents.selectMenuNone')}</option>
+            </select>
             <span>·</span>
             <span>{t('documents.total', { count: total })}</span>
           </div>
           <div className="card doc-list">
-            {activeDocs.map((doc) => (
+            {shownDocs.map((doc) => (
               <DocumentRow
                 key={doc.id}
                 doc={doc}
@@ -383,15 +523,7 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
       {selection.size > 0 ? (
         <div className="bulk-bar" role="toolbar" aria-label={t('documents.selected', { count: selection.size })}>
           <span className="small muted">{t('documents.selected', { count: selection.size })}</span>
-          <button
-            type="button"
-            className="btn btn-sm btn-primary"
-            onClick={() =>
-              void runBulk(async () => {
-                for (const id of ids) await api().confirmDocument(id)
-              }, t('review.confirmedToast'))
-            }
-          >
+          <button type="button" className="btn btn-sm btn-primary" onClick={bulkConfirm}>
             ✓ {t('documents.bulkConfirm')}
           </button>
           <span className="small muted">{t('documents.bulkPayment')}:</span>
@@ -509,6 +641,20 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
           />
           <p className="small muted mt-8">{formatIsoDate(pickedDate, lang)}</p>
         </Dialog>
+      ) : null}
+
+      {confirmBulkIds ? (
+        <ConfirmDialog
+          title={t('documents.bulkConfirmWarningTitle')}
+          body={t('documents.bulkConfirmWarningBody')}
+          confirmLabel={t('documents.bulkConfirm')}
+          onCancel={() => setConfirmBulkIds(null)}
+          onConfirm={() => {
+            const targets = confirmBulkIds
+            setConfirmBulkIds(null)
+            runBulkConfirm(targets)
+          }}
+        />
       ) : null}
 
       {confirmDeleteIds ? (

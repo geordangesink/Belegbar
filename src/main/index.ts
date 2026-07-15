@@ -3,7 +3,7 @@
  * All services are electron-free and receive dataDir/db via injection;
  * only this file, ipc/handlers.ts and dialog/shell call sites touch electron.
  */
-import { app, BrowserWindow, session, shell } from 'electron'
+import { app, BrowserWindow, Notification, session, shell } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { IPC } from '@shared/ipc'
@@ -17,6 +17,7 @@ import { DocumentService } from './documents/service'
 import { LlmModelManager } from './llm/model-manager'
 import { LlmChecker } from './llm/checker'
 import { EcbExchangeRateProvider } from './rates/ecb'
+import { Notifier } from './notify'
 import { registerIpcHandlers } from './ipc/handlers'
 import { initTariffUpdate } from './tax/tariff-update'
 
@@ -115,6 +116,26 @@ function bootServices(): Boot {
     }
   })
 
+  // native OS notifications: import batches and LLM-check drains. The
+  // service itself is electron-free — Notification arrives via injection.
+  const notifier = new Notifier({
+    getLanguage: () => {
+      const language = repos.settings.get().language
+      if (language === 'de' || language === 'en') return language
+      // 'system': resolve via the OS locale, German stays German, rest English
+      return app.getLocale().toLowerCase().startsWith('de') ? 'de' : 'en'
+    },
+    isWindowFocused: () => mainWindow?.isFocused() ?? false,
+    onClick: () => {
+      if (!mainWindow) return
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    },
+    isSupported: () => Notification.isSupported(),
+    createNotification: (opts) => new Notification(opts)
+  })
+
   // local LLM double-check: both services emit the composed status via the
   // same notifier, so every state/queue change reaches the renderer
   const notifyLlm = (): void => {
@@ -122,7 +143,14 @@ function bootServices(): Boot {
     mainWindow?.webContents.send(IPC.llmProgress, llmChecker.getStatus())
   }
   const llmManager = new LlmModelManager({ dataDir, log: logger, notify: notifyLlm })
-  const checker = new LlmChecker({ repos, manager: llmManager, log: logger, notify: notifyLlm })
+  const checker = new LlmChecker({
+    repos,
+    manager: llmManager,
+    log: logger,
+    notify: notifyLlm,
+    // in-app UI updates live; the native ping only matters in the background
+    onQueueDrained: (processedCount) => notifier.notifyLlmDone(processedCount)
+  })
   llmChecker = checker
 
   const pipeline = new ImportPipeline({
@@ -134,7 +162,8 @@ function bootServices(): Boot {
       mainWindow?.webContents.send(IPC.importProgress, progress)
     },
     log: logger,
-    llm: checker
+    llm: checker,
+    onBatchDone: (summary) => notifier.notifyBatchDone(summary)
   })
 
   const documents = new DocumentService({ dataDir, repos, log: logger })

@@ -465,6 +465,67 @@ input[type='checkbox'] {
   color: var(--text-2);
 }
 
+/* -------------------------------------------------------- attention badge */
+
+.attention-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.attention-badge svg {
+  display: block;
+}
+.attention-badge.attn-confirmed,
+.attention-badge.attn-ok {
+  color: var(--accent);
+}
+.attention-badge.attn-minor,
+.attention-badge.attn-warning {
+  color: var(--warn);
+}
+.attention-badge.attn-critical {
+  color: var(--crit);
+}
+.attention-badge.with-label {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.attention-badge.with-label.attn-confirmed,
+.attention-badge.with-label.attn-ok {
+  background: var(--accent-soft);
+}
+.attention-badge.with-label.attn-minor,
+.attention-badge.with-label.attn-warning {
+  background: var(--warn-soft);
+}
+.attention-badge.with-label.attn-critical {
+  background: var(--crit-soft);
+}
+
+/* attention-level filter chips (Documents screen) */
+.attn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.attn-chip.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
 /* ------------------------------------------------------------------ cards */
 
 .card {
@@ -766,6 +827,10 @@ input[type='checkbox'] {
 }
 .import-panel-body {
   overflow-y: auto;
+}
+.import-batch-progress {
+  padding: 8px 12px 0;
+  flex-shrink: 0;
 }
 .import-row {
   padding: 8px 12px;

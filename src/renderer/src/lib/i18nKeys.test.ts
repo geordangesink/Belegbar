@@ -54,6 +54,18 @@ const PROCESSING_STATUSES = [
   'duplicate'
 ] as const
 
+const ATTENTION_LEVELS = ['confirmed', 'ok', 'minor', 'warning', 'critical'] as const
+
+const SELECT_MENU_KEYS = [
+  'selectMenuLabel',
+  'selectMenuAll',
+  'selectMenuOk',
+  'selectMenuMinor',
+  'selectMenuRings',
+  'selectMenuTriangles',
+  'selectMenuNone'
+] as const
+
 const REASON_KEYS = [
   'recognized_payment_date',
   'not_yet_paid',
@@ -120,6 +132,28 @@ describe('locale resources', () => {
     for (const status of PROCESSING_STATUSES) {
       expect(deKeys.has(`processing.${status}`), `processing.${status}`).toBe(true)
     }
+  })
+
+  it('covers all attention levels with label and tooltip', () => {
+    for (const level of ATTENTION_LEVELS) {
+      expect(deKeys.has(`attention.label.${level}`), `de attention.label.${level}`).toBe(true)
+      expect(enKeys.has(`attention.label.${level}`), `en attention.label.${level}`).toBe(true)
+      expect(deKeys.has(`attention.tooltip.${level}`), `de attention.tooltip.${level}`).toBe(true)
+      expect(enKeys.has(`attention.tooltip.${level}`), `en attention.tooltip.${level}`).toBe(true)
+    }
+  })
+
+  it('covers the documents select menu and bulk-confirm warning', () => {
+    for (const key of SELECT_MENU_KEYS) {
+      expect(deKeys.has(`documents.${key}`), `de documents.${key}`).toBe(true)
+      expect(enKeys.has(`documents.${key}`), `en documents.${key}`).toBe(true)
+    }
+    for (const key of ['bulkConfirmWarningTitle', 'bulkConfirmWarningBody'] as const) {
+      expect(deKeys.has(`documents.${key}`), `de documents.${key}`).toBe(true)
+      expect(enKeys.has(`documents.${key}`), `en documents.${key}`).toBe(true)
+    }
+    expect(deKeys.has('import.batchProgress'), 'de import.batchProgress').toBe(true)
+    expect(enKeys.has('import.batchProgress'), 'en import.batchProgress').toBe(true)
   })
 
   it('covers all classification reason keys', () => {
