@@ -30,7 +30,7 @@ const SS = 3 // supersampling (3 → 9 samples per pixel)
 
 const BG_CENTER = [0x12, 0x18, 0x15]
 const BG_CORNER = [0x0a, 0x0e, 0x0c]
-const BASE = [0xd3, 0xcc, 0xbb] // the bread — low enough for hairlines to read
+const BASE = [0xc6, 0xbf, 0xad] // the bread sits LOW so the catch-lights can blaze
 const HEART = [0xff, 0xff, 0xff] // catch-light tint
 
 const LIGHT = {
@@ -148,33 +148,6 @@ const edges = polys.map((pts) => {
   return out
 })
 
-/** light-facing edges with an 'outerness' factor: edges that face another
- * layer across the gap glint softer than the true outer silhouette */
-const glintEdges = []
-for (let si = 0; si < polys.length; si++) {
-  for (const e of edges[si]) {
-    const facing = e.n[0] * ldir[0] + e.n[1] * ldir[1]
-    if (facing >= -LIGHT.facing) continue
-    const mx = (e.a[0] + e.b[0]) / 2 + e.n[0] * 30
-    const my = (e.a[1] + e.b[1]) / 2 + e.n[1] * 30
-    let interior = false
-    for (let sj = 0; sj < polys.length; sj++) {
-      if (sj !== si && inPolyPts(polys[sj], mx, my)) { interior = true; break }
-    }
-    glintEdges.push({ ...e, lit: -facing, factor: interior ? LIGHT.interior : 1 })
-  }
-}
-
-function inPolyPts(pts, x, y) {
-  let inside = false
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    const [xi, yi] = pts[i]
-    const [xj, yj] = pts[j]
-    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
-  }
-  return inside
-}
-
 function inPoly(pts, x, y) {
   let inside = false
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -215,16 +188,23 @@ function sampleMark(x, y) {
     let c = mix(BASE, HEART, 0)
     const fade = 1 - LIGHT.amp * axis
     c = [c[0] * fade, c[1] * fade, c[2] * fade]
-    // in-shape shading only — the crown glints are painted after compositing
+    // edge lighting for THIS shape only
+    let glint = 0
     let shade = 0
     for (const e of edges[s]) {
-      const facing = e.n[0] * ldir[0] + e.n[1] * ldir[1] // >0 → turns away
-      if (facing > LIGHT.facing) {
+      const facing = e.n[0] * ldir[0] + e.n[1] * ldir[1] // <0 → faces the light
+      if (facing < -LIGHT.facing) {
         const d = segDist(x, y, e.a, e.b)
-        shade = Math.max(shade, (1 - smoothstep(0, LIGHT.shadeWidth, d)) * facing * facing)
+        const hard = (1 - smoothstep(0, LIGHT.glintWidth, d)) * -facing
+        const soft = (1 - smoothstep(0, LIGHT.glintSoftWidth, d)) * -facing * LIGHT.glintSoft
+        glint = Math.max(glint, Math.min(1, hard + soft))
+      } else if (facing > LIGHT.facing) {
+        const d = segDist(x, y, e.a, e.b)
+        shade = Math.max(shade, (1 - smoothstep(0, LIGHT.shadeWidth, d)) * facing)
       }
     }
     if (shade > 0) c = [c[0] * (1 - LIGHT.shade * shade), c[1] * (1 - LIGHT.shade * shade), c[2] * (1 - LIGHT.shade * shade)]
+    if (glint > 0) c = mix(c, HEART, LIGHT.glint * glint)
     return c
   }
   return null
@@ -259,28 +239,10 @@ for (let py = 0; py < SIZE; py++) {
     field = mix(field, BASE, warmth)
 
     const cf = cover * inv
-    let outR = field[0] * (1 - cf) + (cover ? r / Math.max(cover, 1) : 0) * cf
-    let outG = field[1] * (1 - cf) + (cover ? g / Math.max(cover, 1) : 0) * cf
-    let outB = field[2] * (1 - cf) + (cover ? b / Math.max(cover, 1) : 0) * cf
-
-    // crown catch-lights: a solid hairline straddling every light-facing
-    // edge (painted over the composite, so half of it halos the silhouette)
-    const cx0 = px + 0.5
-    const cy0 = py + 0.5
-    for (const e of glintEdges) {
-      const d0 = segDist(cx0, cy0, e.a, e.b)
-      const band = 1 - smoothstep(0, LIGHT.glintWidth, d0)
-      if (band > 0.002) {
-        const amt = Math.min(1, LIGHT.glint * band * e.lit * e.lit * e.factor)
-        outR += (HEART[0] - outR) * amt
-        outG += (HEART[1] - outG) * amt
-        outB += (HEART[2] - outB) * amt
-      }
-    }
     const d = dither(px, py) * 1.2
-    outR += d
-    outG += d
-    outB += d
+    const outR = field[0] * (1 - cf) + (cover ? r / Math.max(cover, 1) : 0) * cf + d
+    const outG = field[1] * (1 - cf) + (cover ? g / Math.max(cover, 1) : 0) * cf + d
+    const outB = field[2] * (1 - cf) + (cover ? b / Math.max(cover, 1) : 0) * cf + d
 
     // container mask: squircle corner radius, antialiased
     const cr = cornerRadius
