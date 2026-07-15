@@ -1,26 +1,69 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 1024 1024">
   <!--
-    Belegbar app icon — triangle sandwich viewed from the top-front.
-    Edit freely, then regenerate build/icon.png with:  npm run icon
-    Two colors only:
-      dark  #121815  (background)
-      light #F7F4EE  (mark)
+    Belegbar app icon - triangle sandwich, light from the top-left at ~30deg.
+    Geometry is the hand-edited Illustrator version; lighting lives ONLY on
+    the edges: thin highlight bevels on light-facing edges (top/left), thin
+    shadow bevels on edges turned away (bottom/right).
+    Regenerate build/icon.png with:  npm run icon
+
+    Palette:
+      background   #121815
+      base face    #F7F4EE
+      edge light   #FFFFFF
+      edge shade   #C9C3B4
   -->
+  <defs>
+    <style>
+      .st0 { fill: #f7f4ee; }
+      .st1 { fill: #121815; }
+      .lit { fill: #ffffff; }
+      .shade { fill: #c9c3b4; }
+    </style>
+  </defs>
 
-  <!-- background container (macOS-style squircle; set rx="0" for a sharp square) -->
-  <rect x="0" y="0" width="1024" height="1024" rx="224" fill="#121815"/>
+  <rect class="st1" width="1024" height="1024" rx="224" ry="224"/>
 
-  <g fill="#F7F4EE">
-    <!-- top bread: triangular top face, seen at an incline -->
-    <polygon points="236,498 512,340 788,498"/>
-
-    <!-- filling: protrudes past the bread on both sides -->
-    <rect x="214" y="518" width="596" height="40"/>
-
-    <!-- middle slab: sides slant inward toward the bottom (perspective) -->
-    <polygon points="236,578 788,578 768,618 256,618"/>
-
-    <!-- bottom slab: width matches the middle slab's lower edge -->
-    <rect x="256" y="638" width="512" height="46"/>
+  <!-- sandwich: base tone (hand-edited geometry, untouched) -->
+  <g>
+    <polygon class="st0" points="236 498 512 340 788 498 236 498"/>
+    <rect class="st0" x="214" y="518" width="596" height="40"/>
+    <polygon class="st0" points="276 578 748 578 748 618 276 618 276 578"/>
+    <rect class="st0" x="214" y="638" width="596" height="40"/>
   </g>
+
+  <!-- edge shading: bottom + right edges turn away from the light -->
+  <g>
+    <!-- triangle: right slope + bottom edge -->
+    <polygon class="shade" points="512 340 788 498 781 510 505 352"/>
+    <rect class="shade" x="252" y="486" width="536" height="12"/>
+    <!-- filling -->
+    <rect class="shade" x="214" y="546" width="596" height="12"/>
+    <rect class="shade" x="794" y="518" width="16" height="40"/>
+    <!-- middle slab -->
+    <rect class="shade" x="276" y="606" width="472" height="12"/>
+    <rect class="shade" x="732" y="578" width="16" height="40"/>
+    <!-- bottom slab -->
+    <rect class="shade" x="214" y="666" width="596" height="12"/>
+    <rect class="shade" x="794" y="638" width="16" height="40"/>
+  </g>
+
+  <!-- edge highlights: top + left edges face the light (strong, pure white) -->
+  <g>
+    <!-- triangle: left slope -->
+    <polygon class="lit" points="236 498 512 340 519 352 243 510"/>
+    <!-- filling -->
+    <rect class="lit" x="214" y="518" width="580" height="12"/>
+    <rect class="lit" x="214" y="518" width="16" height="28"/>
+    <!-- middle slab -->
+    <rect class="lit" x="276" y="578" width="456" height="12"/>
+    <rect class="lit" x="276" y="578" width="16" height="28"/>
+    <!-- bottom slab -->
+    <rect class="lit" x="214" y="638" width="580" height="12"/>
+    <rect class="lit" x="214" y="638" width="16" height="28"/>
+  </g>
+
+  <!-- perspective wedges (hand-drawn) - side faces, shaded -->
+  <polygon class="shade" points="256 606.55 236 618 256 618 256 606.55"/>
+  <polygon class="shade" points="768 618 788 618 768 606.55 768 618"/>
 </svg>

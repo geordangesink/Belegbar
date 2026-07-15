@@ -51,11 +51,11 @@ export function Shell(): ReactNode {
             fill="none"
             aria-hidden="true"
           >
-            {/* triangle sandwich from the top-front — sharp, tapering layers */}
+            {/* triangle sandwich from the top-front — mirrors build/icon.svg */}
             <path d="M4.5 12.2 12 5.8l7.5 6.4H4.5Z" fill="currentColor" />
             <rect x="3.4" y="13.7" width="17.2" height="1.9" fill="currentColor" />
-            <path d="M4.5 16.5h15l-.8 1.7H5.3Z" fill="currentColor" />
-            <rect x="5.3" y="19.1" width="13.4" height="1.9" fill="currentColor" />
+            <rect x="5.2" y="16.4" width="13.6" height="1.9" fill="currentColor" />
+            <rect x="3.4" y="19.1" width="17.2" height="1.9" fill="currentColor" />
           </svg>
           Beleg<span>bar</span>
         </div>
