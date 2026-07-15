@@ -10,38 +10,38 @@ import { z } from 'zod'
 
 export const IPC = {
   // import
-  importFiles: 'steuerfach:import-files',
-  importProgress: 'steuerfach:import-progress', // main -> renderer event
-  retryImport: 'steuerfach:retry-import',
-  dismissImport: 'steuerfach:dismiss-import',
+  importFiles: 'belegbar:import-files',
+  importProgress: 'belegbar:import-progress', // main -> renderer event
+  retryImport: 'belegbar:retry-import',
+  dismissImport: 'belegbar:dismiss-import',
   // documents
-  listDocuments: 'steuerfach:list-documents',
-  getDocument: 'steuerfach:get-document',
-  updateDocument: 'steuerfach:update-document',
-  confirmDocument: 'steuerfach:confirm-document',
-  setPaymentDate: 'steuerfach:set-payment-date',
-  setDirection: 'steuerfach:set-direction',
-  setVatTreatment: 'steuerfach:set-vat-treatment',
-  deleteDocument: 'steuerfach:delete-document',
-  restoreDocument: 'steuerfach:restore-document',
-  getDocumentPdf: 'steuerfach:get-document-pdf',
-  revealDocument: 'steuerfach:reveal-document',
-  openDocumentExternal: 'steuerfach:open-document-external',
-  getAuditTrail: 'steuerfach:get-audit-trail',
+  listDocuments: 'belegbar:list-documents',
+  getDocument: 'belegbar:get-document',
+  updateDocument: 'belegbar:update-document',
+  confirmDocument: 'belegbar:confirm-document',
+  setPaymentDate: 'belegbar:set-payment-date',
+  setDirection: 'belegbar:set-direction',
+  setVatTreatment: 'belegbar:set-vat-treatment',
+  deleteDocument: 'belegbar:delete-document',
+  restoreDocument: 'belegbar:restore-document',
+  getDocumentPdf: 'belegbar:get-document-pdf',
+  revealDocument: 'belegbar:reveal-document',
+  openDocumentExternal: 'belegbar:open-document-external',
+  getAuditTrail: 'belegbar:get-audit-trail',
   // summaries
-  getOverview: 'steuerfach:get-overview',
-  getVatSummary: 'steuerfach:get-vat-summary',
-  getIncomeTaxEstimate: 'steuerfach:get-income-tax-estimate',
+  getOverview: 'belegbar:get-overview',
+  getVatSummary: 'belegbar:get-vat-summary',
+  getIncomeTaxEstimate: 'belegbar:get-income-tax-estimate',
   // settings
-  getSettings: 'steuerfach:get-settings',
-  updateSettings: 'steuerfach:update-settings',
+  getSettings: 'belegbar:get-settings',
+  updateSettings: 'belegbar:update-settings',
   // data management
-  createBackup: 'steuerfach:create-backup',
-  restoreBackup: 'steuerfach:restore-backup',
-  exportPeriod: 'steuerfach:export-period',
-  openDataFolder: 'steuerfach:open-data-folder',
-  chooseFiles: 'steuerfach:choose-files',
-  getSystemLocale: 'steuerfach:get-system-locale'
+  createBackup: 'belegbar:create-backup',
+  restoreBackup: 'belegbar:restore-backup',
+  exportPeriod: 'belegbar:export-period',
+  openDataFolder: 'belegbar:open-data-folder',
+  chooseFiles: 'belegbar:choose-files',
+  getSystemLocale: 'belegbar:get-system-locale'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]

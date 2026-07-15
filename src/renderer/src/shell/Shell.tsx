@@ -43,7 +43,33 @@ export function Shell(): ReactNode {
     <div className="shell">
       <nav className="sidebar" aria-label={t('app.name')}>
         <div className="wordmark">
-          Steuer<span>fach</span>
+          <svg
+            className="wordmark-glyph"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+          >
+            {/* sandwich: top bun, lettuce wave, base */}
+            <path
+              d="M4 10c0-3.3 3.6-5 8-5s8 1.7 8 5v.5H4V10Z"
+              fill="currentColor"
+              opacity="0.9"
+            />
+            <path
+              d="M3.5 13.5c1.4 0 1.4 1.6 2.8 1.6s1.4-1.6 2.8-1.6 1.4 1.6 2.8 1.6 1.4-1.6 2.8-1.6 1.4 1.6 2.8 1.6 1.4-1.6 2.9-1.6"
+              stroke="var(--accent)"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+            <path
+              d="M4 17.5h16V18a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18v-.5Z"
+              fill="currentColor"
+              opacity="0.9"
+            />
+          </svg>
+          Beleg<span>bar</span>
         </div>
         {NAV.map((item) => {
           const active =

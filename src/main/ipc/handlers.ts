@@ -192,7 +192,7 @@ export function registerIpcHandlers(ctx: HandlerContext): void {
     const window = ctx.getWindow()
     const options = {
       properties: ['openFile'] as 'openFile'[],
-      filters: [{ name: 'Steuerfach Backup', extensions: ['zip'] }]
+      filters: [{ name: 'Belegbar Backup', extensions: ['zip'] }]
     }
     const picked = window
       ? await dialog.showOpenDialog(window, options)

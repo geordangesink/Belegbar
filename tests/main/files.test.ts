@@ -15,7 +15,7 @@ import {
 let dir: string
 
 beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'steuerfach-files-'))
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'belegbar-files-'))
 })
 
 afterEach(() => {
@@ -45,7 +45,7 @@ function sha256(content: string | Buffer): string {
 
 describe('sha256File', () => {
   it('matches a directly computed hash', async () => {
-    const content = 'steuerfach test content äöü'
+    const content = 'belegbar test content äöü'
     const p = write('a.txt', content)
     expect(await sha256File(p)).toBe(sha256(content))
   })

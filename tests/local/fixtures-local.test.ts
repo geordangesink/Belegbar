@@ -1,6 +1,6 @@
 /**
  * Local-only regression test against real (confidential) fixture texts.
- * Set STEUERFACH_FIXTURE_TEXTS to a directory of .txt dumps to enable;
+ * Set BELEGBAR_FIXTURE_TEXTS to a directory of .txt dumps to enable;
  * skipped cleanly otherwise. Files prefixed income__ parse as income.
  */
 import { describe, expect, it } from 'vitest'
@@ -8,7 +8,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseInvoiceText } from '../../src/core/parsing/parse-invoice'
 
-const dir = process.env['STEUERFACH_FIXTURE_TEXTS']
+const dir = process.env['BELEGBAR_FIXTURE_TEXTS']
 
 describe.skipIf(!dir)('local fixture texts', () => {
   it('extracts date, currency and an amount from >=85% of fixtures', () => {

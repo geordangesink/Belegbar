@@ -92,7 +92,7 @@ function buildSummaryText(
   const vat = computeVatSummary(docs, period, settings)
   const tax = computeIncomeTaxEstimate(docs, period.year, settings)
   const lines: string[] = []
-  lines.push('STEUERFACH — ' + periodSlug(period))
+  lines.push('BELEGBAR — ' + periodSlug(period))
   lines.push('='.repeat(60))
   lines.push(`${ESTIMATE_LABEL_DE}`)
   lines.push(`${ESTIMATE_LABEL_EN}`)
@@ -154,7 +154,7 @@ export async function exportPeriod(deps: {
 }): Promise<ExportResult> {
   const paths = dataPaths(deps.dataDir)
   const inPeriod = deps.documents.filter((d) => documentInPeriod(d, deps.period))
-  const base = `steuerfach-export-${periodSlug(deps.period)}-${deps.format}-${timestamp()}`
+  const base = `belegbar-export-${periodSlug(deps.period)}-${deps.format}-${timestamp()}`
   try {
     await fsp.mkdir(paths.exports, { recursive: true })
     let outPath: string

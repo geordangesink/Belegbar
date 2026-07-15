@@ -1,8 +1,8 @@
-import type { SteuerfachApi } from '../shared/api'
+import type { BelegbarApi } from '../shared/api'
 
 declare global {
   interface Window {
-    steuerfach: SteuerfachApi
+    belegbar: BelegbarApi
   }
 }
 

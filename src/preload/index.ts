@@ -1,14 +1,14 @@
 /**
- * Preload: exposes the typed SteuerfachApi as window.steuerfach.
+ * Preload: exposes the typed BelegbarApi as window.belegbar.
  * Runs sandboxed — only ipcRenderer/contextBridge/webUtils are available,
  * zod is bundled into this file (no external require at runtime).
  */
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { IPC } from '../shared/ipc'
-import type { SteuerfachApi } from '../shared/api'
+import type { BelegbarApi } from '../shared/api'
 import type { ImportFileProgress } from '../shared/domain'
 
-const api: SteuerfachApi = {
+const api: BelegbarApi = {
   // -- import ---------------------------------------------------------------
   importFiles: (payload) => ipcRenderer.invoke(IPC.importFiles, payload),
   onImportProgress: (cb) => {
@@ -64,4 +64,4 @@ const api: SteuerfachApi = {
   getSystemLocale: () => ipcRenderer.invoke(IPC.getSystemLocale)
 }
 
-contextBridge.exposeInMainWorld('steuerfach', api)
+contextBridge.exposeInMainWorld('belegbar', api)

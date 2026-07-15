@@ -44,7 +44,7 @@ app.on('second-instance', () => {
 // ---------------------------------------------------------------------------
 
 function resolveDataDir(): string {
-  const override = process.env['STEUERFACH_DATA_DIR']
+  const override = process.env['BELEGBAR_DATA_DIR']
   if (override && override.trim() !== '') return path.resolve(override)
   return app.getPath('userData')
 }

@@ -19,8 +19,8 @@ async function boot(): Promise<void> {
   let systemLocale = 'en'
   let bootFailed = false
   try {
-    settings = await window.steuerfach.getSettings()
-    systemLocale = await window.steuerfach.getSystemLocale()
+    settings = await window.belegbar.getSettings()
+    systemLocale = await window.belegbar.getSystemLocale()
   } catch {
     bootFailed = true
     systemLocale = navigator.language || 'en'
@@ -28,7 +28,7 @@ async function boot(): Promise<void> {
 
   await initI18n(resolveLanguage(settings.language, systemLocale))
 
-  if (bootFailed || typeof window.steuerfach === 'undefined') {
+  if (bootFailed || typeof window.belegbar === 'undefined') {
     rootEl.innerHTML = ''
     const div = document.createElement('div')
     div.className = 'empty-state'

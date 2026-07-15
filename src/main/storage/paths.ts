@@ -61,7 +61,7 @@ export function dataPaths(dataDir: string): DataPaths {
   return {
     root,
     database: path.join(root, 'database'),
-    databaseFile: path.join(root, 'database', 'steuerfach.sqlite3'),
+    databaseFile: path.join(root, 'database', 'belegbar.sqlite3'),
     documents: path.join(root, 'documents'),
     documentsTmp: path.join(root, 'documents', '.tmp'),
     documentsTrash: path.join(root, 'documents', '.trash'),

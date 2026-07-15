@@ -1,5 +1,5 @@
 /**
- * Steuerfach shared domain model.
+ * Belegbar shared domain model.
  *
  * This file is the single source of truth for types shared between the
  * core domain logic, the Electron main process and the renderer.

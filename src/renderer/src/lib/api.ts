@@ -2,10 +2,10 @@
  * Thin typed access to the preload bridge plus error → i18n key mapping.
  * The renderer never talks to Node/Electron directly.
  */
-import type { SteuerfachApi } from '@shared/api'
+import type { BelegbarApi } from '@shared/api'
 
-export function api(): SteuerfachApi {
-  return window.steuerfach
+export function api(): BelegbarApi {
+  return window.belegbar
 }
 
 const KNOWN_ERROR_KEYS = new Set([

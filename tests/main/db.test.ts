@@ -12,7 +12,7 @@ let handle: DbHandle
 let repos: Repositories
 
 beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'steuerfach-db-'))
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'belegbar-db-'))
   handle = openDatabase(path.join(dir, 'test.sqlite3'))
   repos = createRepositories(handle.db)
 })

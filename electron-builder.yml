@@ -1,5 +1,5 @@
-appId: dev.gesink.steuerfach
-productName: Steuerfach
+appId: dev.gesink.belegbar
+productName: Belegbar
 directories:
   buildResources: build
   output: release

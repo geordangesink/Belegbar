@@ -1,8 +1,8 @@
 {
   "app": {
-    "name": "Steuerfach",
+    "name": "Belegbar",
     "loading": "Loading …",
-    "bootError": "Steuerfach could not start. Please restart the app."
+    "bootError": "Belegbar could not start. Please restart the app."
   },
   "common": {
     "save": "Save changes",
@@ -117,7 +117,7 @@
     "attentionRates": "{{count}} exchange rates missing",
     "attentionRates_one": "1 exchange rate missing",
     "recentTitle": "Recently imported",
-    "recentEmpty": "No documents yet. Just drop PDFs into one of the two zones above – Steuerfach takes care of the rest."
+    "recentEmpty": "No documents yet. Just drop PDFs into one of the two zones above – Belegbar takes care of the rest."
   },
   "import": {
     "headerProgress": "{{done}} of {{total}} processed",
@@ -304,7 +304,7 @@
     "ist": "VAT becomes due when your customer pays.",
     "soll": "VAT becomes due on the invoice date.",
     "kleinunternehmer": "You don't charge or remit VAT.",
-    "unsure": "Steuerfach calculates cautiously and flags uncertainties."
+    "unsure": "Belegbar calculates cautiously and flags uncertainties."
   },
   "filingFrequency": {
     "monthly": "Monthly",
@@ -370,7 +370,7 @@
     "not_yet_paid": "Not paid yet",
     "payment_date_missing": "Payment date missing",
     "recognized_invoice_date": "Invoice date recognized from the document",
-    "method_unsure": "Taxation method still unclear – Steuerfach calculates cautiously",
+    "method_unsure": "Taxation method still unclear – Belegbar calculates cautiously",
     "no_date": "No date available"
   },
   "settings": {
@@ -389,7 +389,7 @@
     "defaultYear": "Default year",
     "defaultYearDesc": "The year selected when the app starts.",
     "moveOriginals": "Move originals after import",
-    "moveOriginalsDesc": "After a successful import, the original file is moved into the Steuerfach folder – so nothing lies around twice. Your PDFs are never altered.",
+    "moveOriginalsDesc": "After a successful import, the original file is moved into the Belegbar folder – so nothing lies around twice. Your PDFs are never altered.",
     "businessName": "Name / company",
     "businessAddress": "Address",
     "businessTaxNumber": "Tax number",
@@ -422,7 +422,7 @@
     "backupRestore": "Restore backup",
     "backupRestoreDesc": "Replaces the current data with a backup.",
     "backupRestoreConfirmTitle": "Restore backup?",
-    "backupRestoreConfirmBody": "The current data will be replaced by the backup. Steuerfach will restart afterwards. It's best to create a fresh backup first.",
+    "backupRestoreConfirmBody": "The current data will be replaced by the backup. Belegbar will restart afterwards. It's best to create a fresh backup first.",
     "backupRestored": "Backup restored.",
     "exportTitle": "Export",
     "exportDesc": "Exports documents and totals for a period.",
@@ -439,26 +439,26 @@
     "savedToast": "Setting saved."
   },
   "onboarding": {
-    "step1Title": "Welcome to Steuerfach",
-    "step1Body": "Drop documents in, get tax clarity out. Steuerfach reads your invoice PDFs, classifies them for tax and continuously shows what's coming – all locally on your device.",
+    "step1Title": "Welcome to Belegbar",
+    "step1Body": "Drop documents in, get tax clarity out. Belegbar reads your invoice PDFs, classifies them for tax and continuously shows what's coming – all locally on your device.",
     "step2Title": "Your business",
-    "step2Body": "A few details so Steuerfach calculates correctly. Everything can be changed later.",
+    "step2Body": "A few details so Belegbar calculates correctly. Everything can be changed later.",
     "nameOptional": "Name / company (optional)",
     "step3Title": "Your tax methods",
-    "step3Body": "If you're not sure, choose “Not sure” – Steuerfach will calculate cautiously and flag open items.",
+    "step3Body": "If you're not sure, choose “Not sure” – Belegbar will calculate cautiously and flag open items.",
     "incomeTaxMethodTitle": "Profit determination",
     "euerDesc": "Income minus expenses – common for freelancers and small businesses.",
     "accrualDesc": "Double-entry bookkeeping with a balance sheet – rather for larger businesses.",
-    "unsureIncomeDesc": "No problem – Steuerfach cautiously assumes the cash-basis logic.",
+    "unsureIncomeDesc": "No problem – Belegbar cautiously assumes the cash-basis logic.",
     "vatMethodTitle": "VAT",
     "filingTitle": "Filing frequency",
     "filingMonthlyDesc": "VAT return every month.",
     "filingQuarterlyDesc": "VAT return per quarter – the most common.",
     "filingYearlyDesc": "Only one annual return.",
     "step4Title": "How importing works",
-    "step4Body": "You drop PDFs into the “Income” or “Expenses” zone. Steuerfach safely copies the file into its data folder, reads the fields and proposes a tax classification. Your original PDFs are never altered.",
+    "step4Body": "You drop PDFs into the “Income” or “Expenses” zone. Belegbar safely copies the file into its data folder, reads the fields and proposes a tax classification. Your original PDFs are never altered.",
     "step4MoveTitle": "Move originals after import",
-    "step4MoveDesc": "Recommended: after a successful import the original is moved into the Steuerfach folder so nothing lies around twice.",
+    "step4MoveDesc": "Recommended: after a successful import the original is moved into the Belegbar folder so nothing lies around twice.",
     "finish": "Let's go"
   },
   "pdf": {

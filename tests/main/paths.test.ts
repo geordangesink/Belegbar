@@ -11,7 +11,7 @@ import {
   resolveInside
 } from '../../src/main/storage/paths'
 
-const base = '/tmp/steuerfach-data'
+const base = '/tmp/belegbar-data'
 
 describe('resolveInside', () => {
   it('joins normal segments inside the base dir', () => {
@@ -46,8 +46,8 @@ describe('resolveInside', () => {
   })
 
   it('rejects sibling directories with a shared prefix', () => {
-    // /tmp/steuerfach-data-evil must not pass a startsWith check
-    expect(() => resolveInside(base, '..', 'steuerfach-data-evil', 'f.pdf')).toThrow(
+    // /tmp/belegbar-data-evil must not pass a startsWith check
+    expect(() => resolveInside(base, '..', 'belegbar-data-evil', 'f.pdf')).toThrow(
       PathTraversalError
     )
   })
@@ -92,7 +92,7 @@ describe('documentRelativeDir', () => {
 
 describe('ensureDataDirs', () => {
   it('creates the full skeleton', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'steuerfach-test-'))
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'belegbar-test-'))
     try {
       const p = ensureDataDirs(dir)
       for (const sub of [
@@ -108,7 +108,7 @@ describe('ensureDataDirs', () => {
       ]) {
         expect(fs.existsSync(sub)).toBe(true)
       }
-      expect(dataPaths(dir).databaseFile.endsWith('steuerfach.sqlite3')).toBe(true)
+      expect(dataPaths(dir).databaseFile.endsWith('belegbar.sqlite3')).toBe(true)
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }

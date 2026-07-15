@@ -1,6 +1,6 @@
 /**
  * Backup + restore. A backup zip contains:
- *   database/steuerfach.sqlite3  (WAL checkpointed first)
+ *   database/belegbar.sqlite3  (WAL checkpointed first)
  *   documents/**                 (all stored PDFs incl. trash)
  *   manifest.json                (versions + timestamp)
  * Settings and the audit trail live inside the database file.
@@ -19,7 +19,7 @@ import { dataPaths, ensureDataDirs } from '../storage/paths'
 import type { Logger } from '../log'
 
 export interface BackupManifest {
-  app: 'steuerfach'
+  app: 'belegbar'
   appVersion: string
   schemaVersion: number
   taxEngineVersions: { vatEngine: string; parser: string }
@@ -49,14 +49,14 @@ export async function createBackup(deps: {
       zip.addLocalFolder(paths.documents, 'documents')
     }
     const manifest: BackupManifest = {
-      app: 'steuerfach',
+      app: 'belegbar',
       appVersion: deps.appVersion,
       schemaVersion: CURRENT_SCHEMA_VERSION,
       taxEngineVersions: { vatEngine: VAT_ENGINE_VERSION, parser: PARSER_VERSION },
       createdAt: new Date().toISOString()
     }
     zip.addFile('manifest.json', Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'))
-    const outPath = path.join(paths.backups, `steuerfach-backup-${timestamp()}.zip`)
+    const outPath = path.join(paths.backups, `belegbar-backup-${timestamp()}.zip`)
     await fsp.mkdir(paths.backups, { recursive: true })
     zip.writeZip(outPath)
     deps.log.info('backup_created')
@@ -95,13 +95,13 @@ export async function restoreBackup(deps: {
     } catch {
       return { ok: false, errorKey: 'backup_invalid' }
     }
-    if (manifest.app !== 'steuerfach') return { ok: false, errorKey: 'backup_invalid' }
+    if (manifest.app !== 'belegbar') return { ok: false, errorKey: 'backup_invalid' }
     if (manifest.schemaVersion > CURRENT_SCHEMA_VERSION) {
       return { ok: false, errorKey: 'backup_newer_schema' }
     }
 
     // validate database opens + passes a quick integrity check
-    const restoredDbFile = path.join(extractDir, 'database', 'steuerfach.sqlite3')
+    const restoredDbFile = path.join(extractDir, 'database', 'belegbar.sqlite3')
     if (!fs.existsSync(restoredDbFile)) return { ok: false, errorKey: 'backup_invalid' }
     try {
       const probe = openDatabase(restoredDbFile)

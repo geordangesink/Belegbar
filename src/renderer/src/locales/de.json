@@ -1,8 +1,8 @@
 {
   "app": {
-    "name": "Steuerfach",
+    "name": "Belegbar",
     "loading": "Wird geladen …",
-    "bootError": "Steuerfach konnte nicht gestartet werden. Bitte starte die App neu."
+    "bootError": "Belegbar konnte nicht gestartet werden. Bitte starte die App neu."
   },
   "common": {
     "save": "Änderungen speichern",
@@ -117,7 +117,7 @@
     "attentionRates": "{{count}} Wechselkurse fehlen",
     "attentionRates_one": "1 Wechselkurs fehlt",
     "recentTitle": "Zuletzt importiert",
-    "recentEmpty": "Noch keine Belege. Lege oben einfach PDFs in eine der beiden Zonen – den Rest übernimmt Steuerfach."
+    "recentEmpty": "Noch keine Belege. Lege oben einfach PDFs in eine der beiden Zonen – den Rest übernimmt Belegbar."
   },
   "import": {
     "headerProgress": "{{done}} von {{total}} verarbeitet",
@@ -304,7 +304,7 @@
     "ist": "USt. wird fällig, wenn deine Kundschaft bezahlt.",
     "soll": "USt. wird mit dem Rechnungsdatum fällig.",
     "kleinunternehmer": "Du weist keine USt. aus und führst keine ab.",
-    "unsure": "Steuerfach rechnet vorsichtig und markiert Unsicherheiten."
+    "unsure": "Belegbar rechnet vorsichtig und markiert Unsicherheiten."
   },
   "filingFrequency": {
     "monthly": "Monatlich",
@@ -370,7 +370,7 @@
     "not_yet_paid": "Noch nicht bezahlt",
     "payment_date_missing": "Zahlungsdatum fehlt",
     "recognized_invoice_date": "Rechnungsdatum aus dem Beleg erkannt",
-    "method_unsure": "Besteuerungsmethode noch unklar – Steuerfach rechnet vorsichtig",
+    "method_unsure": "Besteuerungsmethode noch unklar – Belegbar rechnet vorsichtig",
     "no_date": "Kein Datum vorhanden"
   },
   "settings": {
@@ -389,7 +389,7 @@
     "defaultYear": "Standardjahr",
     "defaultYearDesc": "Das Jahr, das beim Start ausgewählt ist.",
     "moveOriginals": "Originale nach Import verschieben",
-    "moveOriginalsDesc": "Nach erfolgreichem Import wird die Originaldatei in den Steuerfach-Ordner verschoben – so liegt nichts doppelt herum. Deine PDFs werden nie verändert.",
+    "moveOriginalsDesc": "Nach erfolgreichem Import wird die Originaldatei in den Belegbar-Ordner verschoben – so liegt nichts doppelt herum. Deine PDFs werden nie verändert.",
     "businessName": "Name / Firma",
     "businessAddress": "Anschrift",
     "businessTaxNumber": "Steuernummer",
@@ -422,7 +422,7 @@
     "backupRestore": "Backup wiederherstellen",
     "backupRestoreDesc": "Ersetzt die aktuellen Daten durch ein Backup.",
     "backupRestoreConfirmTitle": "Backup wiederherstellen?",
-    "backupRestoreConfirmBody": "Die aktuellen Daten werden durch das Backup ersetzt. Danach startet Steuerfach neu. Erstelle vorher am besten ein aktuelles Backup.",
+    "backupRestoreConfirmBody": "Die aktuellen Daten werden durch das Backup ersetzt. Danach startet Belegbar neu. Erstelle vorher am besten ein aktuelles Backup.",
     "backupRestored": "Backup wiederhergestellt.",
     "exportTitle": "Export",
     "exportDesc": "Exportiert Belege und Summen eines Zeitraums.",
@@ -439,26 +439,26 @@
     "savedToast": "Einstellung gespeichert."
   },
   "onboarding": {
-    "step1Title": "Willkommen bei Steuerfach",
-    "step1Body": "Belege rein. Steuern klar. Steuerfach liest deine Rechnungs-PDFs, ordnet sie steuerlich ein und zeigt dir laufend, was auf dich zukommt – alles lokal auf deinem Gerät.",
+    "step1Title": "Willkommen bei Belegbar",
+    "step1Body": "Belege rein. Steuern klar. Belegbar liest deine Rechnungs-PDFs, ordnet sie steuerlich ein und zeigt dir laufend, was auf dich zukommt – alles lokal auf deinem Gerät.",
     "step2Title": "Dein Geschäft",
-    "step2Body": "Ein paar Angaben, damit Steuerfach richtig rechnet. Alles ist später änderbar.",
+    "step2Body": "Ein paar Angaben, damit Belegbar richtig rechnet. Alles ist später änderbar.",
     "nameOptional": "Name / Firma (optional)",
     "step3Title": "Deine Steuermethoden",
-    "step3Body": "Wenn du unsicher bist, wähle „Unsicher“ – Steuerfach rechnet dann vorsichtig und markiert offene Punkte.",
+    "step3Body": "Wenn du unsicher bist, wähle „Unsicher“ – Belegbar rechnet dann vorsichtig und markiert offene Punkte.",
     "incomeTaxMethodTitle": "Gewinnermittlung",
     "euerDesc": "Einnahmen minus Ausgaben – üblich für Freiberufler und kleine Unternehmen.",
     "accrualDesc": "Doppelte Buchführung mit Bilanz – eher für größere Unternehmen.",
-    "unsureIncomeDesc": "Kein Problem – Steuerfach nimmt vorsichtig die EÜR-Logik an.",
+    "unsureIncomeDesc": "Kein Problem – Belegbar nimmt vorsichtig die EÜR-Logik an.",
     "vatMethodTitle": "Umsatzsteuer",
     "filingTitle": "Abgaberhythmus",
     "filingMonthlyDesc": "USt.-Voranmeldung jeden Monat.",
     "filingQuarterlyDesc": "USt.-Voranmeldung pro Quartal – am häufigsten.",
     "filingYearlyDesc": "Nur eine Jahreserklärung.",
     "step4Title": "So funktioniert der Import",
-    "step4Body": "Du legst PDFs in die Zonen „Einnahmen“ oder „Ausgaben“. Steuerfach kopiert die Datei sicher in seinen Datenordner, liest die Felder aus und schlägt eine steuerliche Einordnung vor. Deine Original-PDFs werden nie verändert.",
+    "step4Body": "Du legst PDFs in die Zonen „Einnahmen“ oder „Ausgaben“. Belegbar kopiert die Datei sicher in seinen Datenordner, liest die Felder aus und schlägt eine steuerliche Einordnung vor. Deine Original-PDFs werden nie verändert.",
     "step4MoveTitle": "Originale nach Import verschieben",
-    "step4MoveDesc": "Empfohlen: Nach erfolgreichem Import wird das Original in den Steuerfach-Ordner verschoben, damit nichts doppelt liegt.",
+    "step4MoveDesc": "Empfohlen: Nach erfolgreichem Import wird das Original in den Belegbar-Ordner verschoben, damit nichts doppelt liegt.",
     "finish": "Los geht's"
   },
   "pdf": {

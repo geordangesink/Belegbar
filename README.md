@@ -1,14 +1,14 @@
-# Steuerfach
+# Belegbar
 
 **Belege rein. Steuern klar.**
 
-Steuerfach is a local-first desktop application for German freelancers, sole
+Belegbar is a local-first desktop application for German freelancers, sole
 proprietors and small service businesses. Drop income and expense PDFs into
 two fields and see your current tax position: revenue, expenses, profit,
 VAT payable, and an estimated income-tax reserve — with every number
 traceable to its underlying documents.
 
-> **Important:** Steuerfach provides estimates for orientation only. It is
+> **Important:** Belegbar provides estimates for orientation only. It is
 > **not tax advice** and none of its exports are official tax filings.
 > Always verify figures with a tax adviser (Steuerberater:in) before filing.
 
@@ -42,8 +42,8 @@ npm run dev        # start Electron + Vite dev server with HMR
 ```
 
 Application data lives in the OS application-data directory
-(e.g. `~/Library/Application Support/Steuerfach` on macOS).
-Set `STEUERFACH_DATA_DIR=/some/dir` to use an isolated data directory
+(e.g. `~/Library/Application Support/Belegbar` on macOS).
+Set `BELEGBAR_DATA_DIR=/some/dir` to use an isolated data directory
 (used by tests; handy during development).
 
 ## Testing
@@ -58,7 +58,7 @@ The example documents under `example/` are **confidential local fixtures**
 and are gitignored. Parser accuracy tests against them are opt-in:
 
 ```bash
-STEUERFACH_FIXTURE_TEXTS=/path/to/fixture-texts npm test -- tests/local
+BELEGBAR_FIXTURE_TEXTS=/path/to/fixture-texts npm test -- tests/local
 ```
 
 ## Packaging
@@ -85,7 +85,7 @@ src/
     summary/   overview / VAT / income-tax period summaries
   main/      Electron main: SQLite (drizzle), storage, import pipeline,
              extraction worker (pdf.js + tesseract.js), validated IPC
-  preload/   contextBridge exposing the typed `window.steuerfach` API
+  preload/   contextBridge exposing the typed `window.belegbar` API
   renderer/  React UI (overview, documents, review, taxes, settings)
 ```
 

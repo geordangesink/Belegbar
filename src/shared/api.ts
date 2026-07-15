@@ -1,6 +1,6 @@
 /**
  * The typed API surface exposed to the renderer via contextBridge as
- * `window.steuerfach`. Preload implements it; the renderer consumes it.
+ * `window.belegbar`. Preload implements it; the renderer consumes it.
  */
 import type {
   AppSettings,
@@ -42,7 +42,7 @@ export interface ExportResult {
   errorKey?: string
 }
 
-export interface SteuerfachApi {
+export interface BelegbarApi {
   // import
   importFiles(payload: ImportFilesPayload): Promise<ImportStartResult>
   onImportProgress(cb: (p: ImportFileProgress) => void): () => void
@@ -98,6 +98,6 @@ export interface SteuerfachApi {
 
 declare global {
   interface Window {
-    steuerfach: SteuerfachApi
+    belegbar: BelegbarApi
   }
 }
