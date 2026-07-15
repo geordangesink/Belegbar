@@ -51,17 +51,15 @@ export function Shell(): ReactNode {
             fill="none"
             aria-hidden="true"
           >
-            {/* triangle sandwich seen from the top-front, monochrome */}
+            {/* triangle sandwich from the top-front — three solid shapes */}
             <path
-              d="M4.6 12.2 12 6.9a.9.9 0 0 1 1 0l6.4 5.3a.55.55 0 0 1-.35.97H4.95a.55.55 0 0 1-.35-.97Z"
+              d="M5 12.6 11.5 7a.8.8 0 0 1 1 0l6.5 5.6a.5.5 0 0 1-.33.88H5.33A.5.5 0 0 1 5 12.6Z"
               fill="currentColor"
             />
-            <rect x="3.9" y="14.2" width="16.2" height="2" rx="1" fill="currentColor" opacity="0.55" />
-            <rect x="3" y="17" width="18" height="1.6" rx="0.8" fill="currentColor" />
+            <rect x="3.4" y="14.7" width="17.2" height="2.1" rx="1.05" fill="currentColor" />
             <path
-              d="M3.9 19.4h16.2v.1a1.9 1.9 0 0 1-1.9 1.9H5.8a1.9 1.9 0 0 1-1.9-1.9v-.1Z"
+              d="M4.3 18h15.4v.4a2.2 2.2 0 0 1-2.2 2.2H6.5a2.2 2.2 0 0 1-2.2-2.2V18Z"
               fill="currentColor"
-              opacity="0.55"
             />
           </svg>
           Beleg<span>bar</span>
