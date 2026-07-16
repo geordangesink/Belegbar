@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { DocumentDirection, ProcessingStatus, ReviewStatus } from '@shared/domain'
+import type { FieldAttentionLevel } from '@core/review/attention'
 
 /** Status is never conveyed by color alone: glyph + (usually) text label. */
 
@@ -92,11 +93,18 @@ const CONFIDENCE_UI: Record<ConfidenceLevel, { char: string; cls: string }> = {
 }
 
 /** Field confidence chip — never shows percentages. */
-export function ConfidenceChip({ level }: { level: ConfidenceLevel }): ReactNode {
+export function ConfidenceChip({
+  level,
+  attention
+}: {
+  level: ConfidenceLevel
+  attention?: FieldAttentionLevel
+}): ReactNode {
   const { t } = useTranslation()
   const ui = CONFIDENCE_UI[level]
+  const tone = attention === 'critical' ? 'chip-crit' : attention ? 'chip-warn' : ui.cls
   return (
-    <span className={`chip ${ui.cls}`}>
+    <span className={`chip ${tone}`}>
       <span aria-hidden="true">{ui.char}</span> {t(`confidence.${level}`)}
     </span>
   )

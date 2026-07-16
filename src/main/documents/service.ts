@@ -4,22 +4,37 @@
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
-import { classifyVat, listVatTreatments } from '@core/vat/classify'
+import {
+  classifyVat,
+  isVatTreatmentApplicable,
+  listVatTreatments
+} from '@core/vat/classify'
 import { generateStoredFilename, withCollisionSuffix } from '@core/files/filename'
 import { periodOfIsoDate } from '@core/period/period'
 import { convertToEur, isIsoCurrency, type ExchangeRateResult } from '@core/currency/convert'
+import {
+  canonicalDocumentField,
+  confidenceKeysForField
+} from '@core/review/fields'
 import type {
+  DeleteDocumentsResult,
   DocumentDirection,
   DocumentIssue,
   ExtractedInvoiceData,
   TaxDocument,
   VatClassificationResult
 } from '@shared/domain'
+import type { SaveDocumentCopiesResult } from '@shared/api'
 import type { UpdateDocumentPayload } from '@shared/ipc'
 import type { Repositories } from '../db/repository'
 import type { Logger } from '../log'
 import { dataPaths, documentRelativeDir, resolveInside } from '../storage/paths'
-import { atomicMove, moveToTrash } from '../storage/files'
+import {
+  atomicMove,
+  copyAndVerify,
+  copyAndVerifyReplacing,
+  moveToTrash
+} from '../storage/files'
 
 const FILENAME_RELEVANT_FIELDS: (keyof UpdateDocumentPayload['patch'])[] = [
   'invoiceDate',
@@ -28,6 +43,12 @@ const FILENAME_RELEVANT_FIELDS: (keyof UpdateDocumentPayload['patch'])[] = [
   'description',
   'invoiceNumber'
 ]
+
+type DocumentCopiesDestination =
+  | { kind: 'file'; path: string }
+  | { kind: 'directory'; path: string }
+
+const COPY_COLLISION_ATTEMPTS = 10_000
 
 function issue(
   code: string,
@@ -75,13 +96,14 @@ function safeIsIsoCurrency(code: string): boolean {
 /** Is this issue resolved by the document's current field values? */
 export function isIssueResolved(docIssue: DocumentIssue, doc: TaxDocument): boolean {
   const code = docIssue.code
-  // consistency issues: only resolved when the numbers actually add up
-  if (code.includes('inconsistent') || code.includes('mismatch')) {
+  if (
+    code === 'conflicting_totals' ||
+    code.includes('inconsistent') ||
+    code.includes('mismatch')
+  ) {
     const { netAmountOriginal: net, vatAmountOriginal: vat, grossAmountOriginal: gross } = doc
-    if (net !== null && vat !== null && gross !== null) {
-      return Math.abs(net + vat - gross) < 0.015
-    }
-    return false
+    if (net === null || vat === null || gross === null) return true
+    return Math.abs(net + vat - gross) <= 0.02
   }
   switch (code) {
     case 'missing_invoice_date':
@@ -89,7 +111,9 @@ export function isIssueResolved(docIssue: DocumentIssue, doc: TaxDocument): bool
     case 'missing_invoice_number':
       return doc.invoiceNumber !== null
     case 'missing_currency':
+    case 'unknown_currency':
       return doc.originalCurrency !== null
+    case 'missing_amount':
     case 'missing_amounts':
       return doc.grossAmountOriginal !== null || doc.netAmountOriginal !== null
     case 'missing_gross_amount':
@@ -99,9 +123,11 @@ export function isIssueResolved(docIssue: DocumentIssue, doc: TaxDocument): bool
     case 'missing_vat_amount':
       return doc.vatAmountOriginal !== null
     case 'missing_exchange_rate':
-      return doc.originalCurrency === 'EUR' || doc.exchangeRateToEur !== null
+      return doc.originalCurrency?.trim().toUpperCase() === 'EUR' || doc.exchangeRateToEur !== null
     case 'non_iso_currency':
       return doc.originalCurrency !== null && safeIsIsoCurrency(doc.originalCurrency)
+    case 'llm_disagreement':
+      return false
     case 'missing_issuer':
     case 'missing_issuer_name':
       return doc.issuerName !== null
@@ -114,13 +140,98 @@ export function isIssueResolved(docIssue: DocumentIssue, doc: TaxDocument): bool
     case 'duplicate_detected':
       return false // cleared explicitly, never by field edits
     default: {
-      if (docIssue.field && docIssue.field in doc) {
-        const value = doc[docIssue.field as keyof TaxDocument]
+      const field = canonicalDocumentField(docIssue.field ?? '')
+      if (field && field in doc) {
+        const value = doc[field as keyof TaxDocument]
         return value !== null && value !== undefined && value !== ''
       }
       return false
     }
   }
+}
+
+export function syncCoreIssues(doc: TaxDocument): TaxDocument {
+  const next = {
+    ...doc,
+    issues: doc.issues.filter(
+      (item) => item.code !== 'missing_exchange_rate' || !isIssueResolved(item, doc)
+    )
+  }
+  const ensure = (code: string, field: string): void => {
+    const existingIndex = next.issues.findIndex((item) => item.code === code)
+    if (existingIndex === -1) {
+      next.issues.push(issue(code, 'critical', field))
+    } else if (next.issues[existingIndex]!.severity !== 'critical') {
+      next.issues[existingIndex] = {
+        ...next.issues[existingIndex]!,
+        severity: 'critical',
+        field: next.issues[existingIndex]!.field ?? field
+      }
+    }
+  }
+  if (next.invoiceDate === null) ensure('missing_invoice_date', 'invoiceDate')
+  if (next.originalCurrency === null) ensure('unknown_currency', 'currency')
+  if (next.grossAmountOriginal === null && next.netAmountOriginal === null) {
+    ensure('missing_amount', 'grossAmount')
+  }
+  if (
+    next.originalCurrency !== null &&
+    next.originalCurrency.trim().toUpperCase() !== 'EUR' &&
+    next.exchangeRateToEur === null
+  ) {
+    ensure('missing_exchange_rate', 'exchangeRateToEur')
+  }
+  const { netAmountOriginal: net, vatAmountOriginal: vat, grossAmountOriginal: gross } = next
+  if (
+    net !== null &&
+    vat !== null &&
+    gross !== null &&
+    Math.abs(net + vat - gross) > 0.02
+  ) {
+    ensure('conflicting_totals', 'grossAmount')
+  }
+  next.reviewReasons = [...new Set(next.issues.map((item) => item.code))]
+  return next
+}
+
+export function invalidateFieldEvidence(
+  doc: TaxDocument,
+  changedFields: readonly string[]
+): TaxDocument {
+  const changed = new Set(changedFields.map(canonicalDocumentField))
+  const next: TaxDocument = {
+    ...doc,
+    fieldConfidence: { ...doc.fieldConfidence },
+    issues: doc.issues.filter(
+      (item) =>
+        item.code !== 'llm_disagreement' ||
+        !changed.has(canonicalDocumentField(item.field ?? ''))
+    )
+  }
+  for (const field of changed) {
+    for (const key of confidenceKeysForField(field)) delete next.fieldConfidence[key]
+  }
+  if (next.extractionRawJson === null || typeof next.extractionRawJson !== 'object') return next
+  const raw = { ...(next.extractionRawJson as Record<string, unknown>) }
+  const llmCheck = raw['llmCheck']
+  if (llmCheck === null || typeof llmCheck !== 'object') {
+    next.extractionRawJson = raw
+    return next
+  }
+  const check = { ...(llmCheck as Record<string, unknown>) }
+  const storedFields = check['fields']
+  if (storedFields === null || typeof storedFields !== 'object') {
+    next.extractionRawJson = raw
+    return next
+  }
+  const fields = { ...(storedFields as Record<string, unknown>) }
+  for (const field of Object.keys(fields)) {
+    if (changed.has(canonicalDocumentField(field))) delete fields[field]
+  }
+  if (Object.keys(fields).length === 0) delete raw['llmCheck']
+  else raw['llmCheck'] = { ...check, fields }
+  next.extractionRawJson = raw
+  return next
 }
 
 export interface DocumentServiceDeps {
@@ -134,6 +245,14 @@ export class DocumentService {
 
   absolutePathOf(doc: TaxDocument): string {
     return resolveInside(this.deps.dataDir, ...doc.storedRelativePath.split('/'))
+  }
+
+  private storedPdfPathOf(doc: TaxDocument): string {
+    if (!doc.deletedAt) return this.absolutePathOf(doc)
+    return resolveInside(
+      dataPaths(this.deps.dataDir).documentsTrash,
+      `${doc.id}__${doc.storedFilename}`
+    )
   }
 
   private getOrThrow(id: string): TaxDocument {
@@ -326,6 +445,8 @@ export class DocumentService {
     }
     if (changedFields.length === 0) return doc
 
+    next = invalidateFieldEvidence(next, changedFields)
+
     // re-derive everything that depends on the edited fields — but a VAT
     // treatment the user picked explicitly stays until they change it or
     // the document switches direction
@@ -343,6 +464,7 @@ export class DocumentService {
     next = this.recomputeEurAmounts(next)
     next = this.recomputePeriod(next)
     next = this.dropResolvedIssues(next)
+    next = syncCoreIssues(next)
 
     const filenameRelevant =
       changedFields.some((f) =>
@@ -373,7 +495,7 @@ export class DocumentService {
   async confirm(id: string): Promise<TaxDocument> {
     const doc = this.getOrThrow(id)
     if (doc.deletedAt) throw new Error('not_found')
-    if (doc.issues.some((i) => i.severity === 'critical')) {
+    if (syncCoreIssues(doc).issues.some((i) => i.severity === 'critical')) {
       throw new Error('critical_issues')
     }
     const next: TaxDocument = {
@@ -463,12 +585,19 @@ export class DocumentService {
     const doc = this.getOrThrow(id)
     if (doc.deletedAt) throw new Error('not_found')
     const treatment = listVatTreatments().find((t) => t.code === code)
-    if (!treatment) throw new Error('invalid_treatment_code')
+    if (!treatment || !isVatTreatmentApplicable(doc.direction, treatment.code)) {
+      throw new Error('invalid_treatment_code')
+    }
     const next: TaxDocument = {
       ...doc,
       vatTreatmentCode: treatment.code,
       vatTreatmentLabel: treatment.labelDe,
-      vatLegalBasis: treatment.legalBasis
+      vatLegalBasis: treatment.legalBasis,
+      reviewReasons: doc.reviewReasons.filter(
+        (reason) => reason !== 'vat_classification_unconfirmed'
+      ),
+      reviewStatus: 'needs_review',
+      userConfirmedAt: null
     }
     this.deps.repos.audit.append({
       documentId: id,
@@ -504,15 +633,122 @@ export class DocumentService {
     // hard delete: only allowed from trash
     if (!doc.deletedAt) throw new Error('not_trashed')
     const trashPath = path.join(paths.documentsTrash, `${doc.id}__${doc.storedFilename}`)
+    await fsp.rm(path.join(paths.thumbnails, `${doc.id}.png`), { force: true })
     await fsp.rm(trashPath, { force: true })
     this.deps.repos.documents.hardDelete(id)
-    this.deps.repos.audit.append({
-      documentId: id,
-      eventType: 'hard_delete',
-      previousValue: { storedRelativePath: doc.storedRelativePath },
-      nextValue: null,
-      source: 'user'
-    })
+    try {
+      this.deps.repos.audit.append({
+        documentId: id,
+        eventType: 'hard_delete',
+        previousValue: { storedRelativePath: doc.storedRelativePath },
+        nextValue: null,
+        source: 'user'
+      })
+    } catch {
+      this.deps.log.warn('hard_delete_audit_failed', { documentId: id })
+    }
+  }
+
+  async deleteMany(
+    ids: string[],
+    mode: 'trash' | 'hard'
+  ): Promise<DeleteDocumentsResult> {
+    const result: DeleteDocumentsResult = { deleted: 0, skipped: 0, failed: 0 }
+    for (const id of new Set(ids)) {
+      const doc = this.deps.repos.documents.getById(id)
+      if (!doc) {
+        result.failed++
+        continue
+      }
+      if ((mode === 'trash' && doc.deletedAt) || (mode === 'hard' && !doc.deletedAt)) {
+        result.skipped++
+        continue
+      }
+      try {
+        await this.delete(id, mode)
+        result.deleted++
+      } catch {
+        result.failed++
+      }
+    }
+    return result
+  }
+
+  async emptyTrash(): Promise<DeleteDocumentsResult> {
+    return this.deleteMany(
+      this.deps.repos.documents.listAllTrashed().map((document) => document.id),
+      'hard'
+    )
+  }
+
+  async saveDocumentCopies(
+    ids: readonly string[],
+    destination: DocumentCopiesDestination
+  ): Promise<SaveDocumentCopiesResult> {
+    const uniqueIds = [...new Set(ids)]
+    if (destination.kind === 'file' && uniqueIds.length !== 1) {
+      throw new Error('invalid_payload')
+    }
+
+    if (destination.kind === 'directory') {
+      try {
+        const stat = await fsp.stat(destination.path)
+        if (!stat.isDirectory()) {
+          return { canceled: false, saved: 0, failed: uniqueIds.length }
+        }
+      } catch {
+        return { canceled: false, saved: 0, failed: uniqueIds.length }
+      }
+    }
+
+    let saved = 0
+    let failed = 0
+    for (const id of uniqueIds) {
+      const document = this.deps.repos.documents.getById(id)
+      if (!document) {
+        failed++
+        continue
+      }
+      try {
+        const source = this.storedPdfPathOf(document)
+        if (destination.kind === 'file') {
+          await copyAndVerifyReplacing(source, destination.path, document.sha256)
+        } else {
+          await this.copyDocumentToDirectory(document, source, destination.path)
+        }
+        saved++
+      } catch (err) {
+        failed++
+        this.deps.log.warn('document_copy_failed', {
+          documentId: id,
+          code:
+            (err as NodeJS.ErrnoException).code ??
+            (err instanceof Error ? err.message : 'unknown')
+        })
+      }
+    }
+    this.deps.log.info('document_copies_saved', { saved, failed })
+    return { canceled: false, saved, failed }
+  }
+
+  private async copyDocumentToDirectory(
+    document: TaxDocument,
+    source: string,
+    directory: string
+  ): Promise<void> {
+    for (let attempt = 1; attempt <= COPY_COLLISION_ATTEMPTS; attempt++) {
+      const filename = withCollisionSuffix(document.storedFilename, attempt)
+      const destination = resolveInside(directory, filename)
+      try {
+        await copyAndVerify(source, destination, document.sha256)
+        return
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code
+        if (code === 'EEXIST' || code === 'EISDIR') continue
+        throw err
+      }
+    }
+    throw new Error('save_copy_failed')
   }
 
   async restore(id: string): Promise<void> {
@@ -566,11 +802,8 @@ export class DocumentService {
 
   async getPdfBytes(id: string): Promise<Buffer> {
     const doc = this.getOrThrow(id)
-    const abs = doc.deletedAt
-      ? path.join(dataPaths(this.deps.dataDir).documentsTrash, `${doc.id}__${doc.storedFilename}`)
-      : this.absolutePathOf(doc)
     try {
-      return await fsp.readFile(abs)
+      return await fsp.readFile(this.storedPdfPathOf(doc))
     } catch {
       throw new Error('file_missing')
     }

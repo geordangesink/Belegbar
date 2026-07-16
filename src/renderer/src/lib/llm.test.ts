@@ -7,7 +7,8 @@ import {
   getLlmCheck,
   llmDisagreementCount,
   llmFieldLabelKey,
-  llmReasonKey
+  llmReasonKey,
+  reviewFieldLabelKey
 } from './llm'
 
 function lookup(tree: Record<string, unknown>, key: string): unknown {
@@ -36,6 +37,27 @@ describe('llmFieldLabelKey', () => {
     expect(llmFieldLabelKey('somethingElse')).toBeNull()
     expect(llmFieldLabelKey('')).toBeNull()
   })
+
+  it('maps every field that can appear in the review-target summary', () => {
+    for (const field of [
+      'originalCurrency',
+      'issuerCountryCode',
+      'issuerVatId',
+      'recipientCountryCode',
+      'recipientVatId',
+      'recipientIsBusiness',
+      'exchangeRateToEur',
+      'vatTreatmentCode'
+    ]) {
+      const key = reviewFieldLabelKey(field)
+      expect(typeof lookup(de as Record<string, unknown>, key as string), `de ${field}`).toBe(
+        'string'
+      )
+      expect(typeof lookup(en as Record<string, unknown>, key as string), `en ${field}`).toBe(
+        'string'
+      )
+    }
+  })
 })
 
 describe('getLlmCheck', () => {
@@ -56,13 +78,18 @@ describe('getLlmCheck', () => {
         model: 'qwen',
         fields: {
           invoiceDate: { agrees: true, suggested: null },
-          netAmountOriginal: { agrees: false, suggested: '119,00' },
+          netAmountOriginal: {
+            agrees: false,
+            suggested: '119,00',
+            confidence: 'high'
+          },
           broken: { agrees: 'yes' }
         }
       }
     })
     expect(check).not.toBeNull()
     expect(Object.keys(check?.fields ?? {}).sort()).toEqual(['invoiceDate', 'netAmountOriginal'])
+    expect(check?.fields.netAmountOriginal?.confidence).toBe('high')
     expect(check ? llmDisagreementCount(check) : -1).toBe(1)
   })
 

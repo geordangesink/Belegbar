@@ -14,14 +14,26 @@ export function DropZone({ direction }: { direction: DocumentDirection }): React
   const { startImport } = useImport()
   const [dragover, setDragover] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [picking, setPicking] = useState(false)
+  const [acceptedCount, setAcceptedCount] = useState(0)
   const dragDepth = useRef(0)
 
   const title = direction === 'income' ? t('overview.dropIncome') : t('overview.dropExpense')
 
   const pickFiles = async (): Promise<void> => {
+    if (picking) return
+    setPicking(true)
     setError(null)
-    const paths = await api().chooseFiles(direction)
-    if (paths.length > 0) await startImport(direction, paths)
+    setAcceptedCount(0)
+    try {
+      const paths = await api().chooseFiles(direction)
+      if (paths.length > 0) {
+        setAcceptedCount(paths.length)
+        await startImport(direction, paths)
+      }
+    } finally {
+      setPicking(false)
+    }
   }
 
   const onDrop = async (e: DragEvent): Promise<void> => {
@@ -39,15 +51,17 @@ export function DropZone({ direction }: { direction: DocumentDirection }): React
       setError(t('overview.noPath'))
       return
     }
+    setAcceptedCount(paths.length)
     await startImport(direction, paths)
   }
 
   return (
     <div>
       <div
-        className={`dropzone${dragover ? ' dragover' : ''}`}
+        className={`dropzone ${direction}${dragover ? ' dragover' : ''}${picking ? ' busy' : ''}${acceptedCount > 0 ? ' accepted' : ''}`}
         role="button"
         tabIndex={0}
+        aria-busy={picking}
         aria-label={t('overview.dropAria', { zone: title })}
         onClick={() => void pickFiles()}
         onKeyDown={(e) => {
@@ -71,12 +85,17 @@ export function DropZone({ direction }: { direction: DocumentDirection }): React
         }}
         onDrop={(e) => void onDrop(e)}
       >
-        <span className="muted" aria-hidden="true">
-          <Icon name="upload" size={22} />
+        <span className="dropzone-icon" aria-hidden="true">
+          <Icon name={acceptedCount > 0 ? 'check' : 'upload'} size={22} />
         </span>
         <div className="dz-title">{title}</div>
-        <div className="dz-hint">{t('overview.dropHint')}</div>
-        <div className="dz-sub">{t('overview.dropSub')}</div>
+        <div className="dz-hint">
+          {acceptedCount > 0
+            ? t('overview.addedCount', { count: acceptedCount })
+            : picking
+              ? t('overview.choosing')
+              : t('overview.dropHint')}
+        </div>
       </div>
       {error ? (
         <div className="dz-error" role="alert">

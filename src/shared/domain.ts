@@ -31,10 +31,10 @@ export type IssueSeverity = 'info' | 'warning' | 'critical'
  * confidences and review state (core/review/attention.ts) and used
  * identically in every list, panel and detail view:
  *  - confirmed  → green checkmark (user confirmed the document)
- *  - ok         → green ring   (confident analysis, nothing to check)
- *  - minor      → yellow ring  (works, but some unimportant readings are uncertain)
+ *  - ok         → green ring (confident analysis, nothing to check)
+ *  - minor      → yellow question circle (works, but some unimportant readings are uncertain)
  *  - warning    → yellow triangle (ONLY for potentially tax-relevant problems)
- *  - critical   → red triangle (ONLY for real concerns; excluded from totals)
+ *  - critical   → red stop mark (ONLY for real concerns; excluded from totals)
  */
 export type AttentionLevel = 'confirmed' | 'ok' | 'minor' | 'warning' | 'critical'
 
@@ -149,6 +149,12 @@ export interface StoredFileIdentity {
   generatedFilename: string
   storedRelativePath: string
   sha256: string
+}
+
+export interface DeleteDocumentsResult {
+  deleted: number
+  skipped: number
+  failed: number
 }
 
 // ---------------------------------------------------------------------------
@@ -335,11 +341,15 @@ export interface LlmStatus {
 }
 
 /** One field's verdict from the local model. */
+export type LlmVerdictConfidence = 'low' | 'medium' | 'high'
+
 export interface LlmFieldVerdict {
   /** does the model agree with the deterministically extracted value? */
   agrees: boolean
   /** model's suggested value when it disagrees (never auto-applied) */
   suggested: string | null
+  /** certainty of this verdict; absent only on checks stored by older versions */
+  confidence?: LlmVerdictConfidence
 }
 
 export interface LlmCheckResult {
@@ -440,6 +450,8 @@ export interface ImportFileProgress {
   errorKey: string | null
 }
 
+export type DocumentSort = 'newest' | 'oldest' | 'recent'
+
 export interface DocumentListFilter {
   search?: string
   year?: number
@@ -448,6 +460,8 @@ export interface DocumentListFilter {
   reviewStatus?: ReviewStatus
   vatTreatmentCode?: string
   includeDeleted?: boolean
+  includeUnassigned?: boolean
+  sort?: DocumentSort
   limit?: number
   offset?: number
 }

@@ -3,25 +3,33 @@
  * All services are electron-free and receive dataDir/db via injection;
  * only this file, ipc/handlers.ts and dialog/shell call sites touch electron.
  */
-import { app, BrowserWindow, Notification, session, shell } from 'electron'
+import { app, BrowserWindow, nativeTheme, Notification, session, shell } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { IPC } from '@shared/ipc'
 import { createLogger, type Logger } from './log'
 import { ensureDataDirs, dataPaths } from './storage/paths'
 import { openDatabase, type DbHandle } from './db/connection'
-import { createRepositories, type Repositories } from './db/repository'
+import {
+  createRepositories,
+  type Repositories,
+  type StoredExchangeRate
+} from './db/repository'
 import { ExtractionService } from './extraction/service'
 import { ImportPipeline } from './import/pipeline'
 import { DocumentService } from './documents/service'
 import { LlmModelManager } from './llm/model-manager'
 import { LlmChecker } from './llm/checker'
+import { BmfMonthlyExchangeRateProvider } from './rates/bmf-monthly'
 import { EcbExchangeRateProvider } from './rates/ecb'
 import { Notifier } from './notify'
 import { registerIpcHandlers } from './ipc/handlers'
+import { initSoliUpdate } from './tax/soli-update'
 import { initTariffUpdate } from './tax/tariff-update'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const appIconPath = path.resolve(__dirname, '../../build/icon.png')
+const developmentDockIconPath = path.resolve(__dirname, '../../build/icon-dock.png')
 
 // ---------------------------------------------------------------------------
 // single instance
@@ -106,15 +114,17 @@ function bootServices(): Boot {
   })
   extraction = extractionService
 
-  const ratesProvider = new EcbExchangeRateProvider({
-    onRateFetched: (rate) => {
-      try {
-        repos.exchangeRates.save(rate)
-      } catch {
-        logger.warn('rate_cache_write_failed')
-      }
+  const saveFetchedRate = (rate: StoredExchangeRate): void => {
+    try {
+      repos.exchangeRates.save(rate)
+    } catch {
+      logger.warn('rate_cache_write_failed')
     }
-  })
+  }
+  const ratesProviders = {
+    bmf: new BmfMonthlyExchangeRateProvider({ onRateFetched: saveFetchedRate }),
+    ecb: new EcbExchangeRateProvider({ onRateFetched: saveFetchedRate })
+  }
 
   // native OS notifications: import batches and LLM-check drains. The
   // service itself is electron-free — Notification arrives via injection.
@@ -157,7 +167,7 @@ function bootServices(): Boot {
     dataDir,
     repos,
     extraction: extractionService,
-    ratesProvider,
+    ratesProviders,
     emit: (progress) => {
       mainWindow?.webContents.send(IPC.importProgress, progress)
     },
@@ -228,6 +238,14 @@ function createWindow(): void {
     height: 820,
     minWidth: 1080,
     minHeight: 700,
+    icon: app.isPackaged ? undefined : appIconPath,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#101412' : '#f3f5f2',
+    ...(process.platform === 'darwin'
+      ? {
+          titleBarStyle: 'hidden' as const,
+          trafficLightPosition: { x: 18, y: 18 }
+        }
+      : {}),
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -273,6 +291,9 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   try {
+    if (!app.isPackaged && process.platform === 'darwin') {
+      app.dock?.setIcon(developmentDockIconPath)
+    }
     const boot = bootServices()
     installWebSecurity()
 
@@ -296,6 +317,7 @@ app.whenReady().then(async () => {
 
     await boot.pipeline.recoverOnBoot()
     initTariffUpdate({ dataDir: boot.dataDir, log: boot.log }) // non-blocking §32a refresh
+    initSoliUpdate({ dataDir: boot.dataDir, log: boot.log })
     createWindow()
 
     app.on('activate', () => {

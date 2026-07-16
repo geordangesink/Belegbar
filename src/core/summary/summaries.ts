@@ -25,7 +25,23 @@ type Bucket = 'confirmed' | 'provisional' | 'excluded'
 function bucketOf(doc: TaxDocument): Bucket | null {
   if (doc.deletedAt !== null) return null
   const hasCritical = doc.issues.some((i) => i.severity === 'critical')
-  if (hasCritical || doc.reviewStatus === 'failed') return 'excluded'
+  const currency = doc.originalCurrency?.trim().toUpperCase() ?? null
+  const missingExchangeRate =
+    currency !== null &&
+    currency !== 'EUR' &&
+    doc.exchangeRateToEur === null
+  const storedMissingRateBlocks =
+    currency !== 'EUR' &&
+    doc.exchangeRateToEur === null &&
+    doc.issues.some((issue) => issue.code === 'missing_exchange_rate')
+  if (
+    hasCritical ||
+    missingExchangeRate ||
+    storedMissingRateBlocks ||
+    doc.reviewStatus === 'failed'
+  ) {
+    return 'excluded'
+  }
   if (doc.reviewStatus === 'confirmed') return 'confirmed'
   if (doc.reviewStatus === 'needs_review') return 'provisional'
   // still processing → not usable for totals yet
@@ -327,9 +343,14 @@ export function computeIncomeTaxEstimate(
       `No tariff for ${year} available — the ${engine.year} tariff (version ${engine.version}) was used.`
     )
   }
-  if (settings.churchTax !== 'none' || settings.includeSolidaritySurcharge) {
+  if (settings.churchTax !== 'none') {
     assumptions.push(
-      'Church tax and solidarity surcharge are estimated without child allowances or caps.'
+      'Church tax is estimated without child allowances or regional caps.'
+    )
+  }
+  if (settings.includeSolidaritySurcharge) {
+    assumptions.push(
+      'Solidarity surcharge is estimated without child-allowance effects.'
     )
   }
 
@@ -342,11 +363,6 @@ export function computeIncomeTaxEstimate(
   if (excludedCount > 0) {
     incompleteItems.push(
       `${excludedCount} document(s) were excluded due to critical issues or failed processing.`
-    )
-  }
-  if (settings.incomeTaxMethod === 'unsure') {
-    incompleteItems.push(
-      'The profit determination method (EÜR vs. accrual) is not configured.'
     )
   }
   if (settings.deductibleContributions === 0) {
@@ -416,7 +432,7 @@ export function computeOverview(
       }
       if (
         doc.originalCurrency !== null &&
-        doc.originalCurrency !== 'EUR' &&
+        doc.originalCurrency.trim().toUpperCase() !== 'EUR' &&
         doc.exchangeRateToEur === null
       ) {
         exchangeRatesMissing += 1

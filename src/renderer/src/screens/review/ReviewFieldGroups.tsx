@@ -1,16 +1,21 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TaxDocument } from '@shared/domain'
+import type { FieldAttentionLevel } from '@core/review/attention'
 import { activeLanguage } from '../../i18n'
 import { formatEur, formatNumber, round2 } from '../../lib/format'
 import { MoneyInput } from '../../components/MoneyInput'
 import { Icon } from '../../components/Icon'
 import { FieldRow, effective, type Patch, type PatchKey } from './FieldRow'
 
+const BMF_RATES_DATASET_URL =
+  'https://www.bundesfinanzministerium.de/Datenportal/Daten/offene-daten/steuern-zoelle/umsatzsteuer-umrechnungskurse/umsatzsteuer-umrechnungskurse.html'
+
 export interface GroupProps {
   doc: TaxDocument
   patch: Patch
   setField: <K extends PatchKey>(key: K, value: Patch[K]) => void
+  fieldAttention: Readonly<Record<string, FieldAttentionLevel>>
 }
 
 function TextField({
@@ -21,17 +26,22 @@ function TextField({
   label,
   transform,
   maxLength,
-  confKeys
+  fieldAttention
 }: GroupProps & {
   fieldKey: PatchKey
   label: string
   transform?: (s: string) => string
   maxLength?: number
-  confKeys?: string[]
 }): ReactNode {
   const value = effective(doc, patch, fieldKey)
   return (
-    <FieldRow label={label} doc={doc} patch={patch} fieldKey={fieldKey} confKeys={confKeys}>
+    <FieldRow
+      label={label}
+      doc={doc}
+      patch={patch}
+      fieldKey={fieldKey}
+      fieldAttention={fieldAttention}
+    >
       <input
         id={`field-${fieldKey}`}
         className="input"
@@ -51,11 +61,18 @@ function DateField({
   patch,
   setField,
   fieldKey,
-  label
+  label,
+  fieldAttention
 }: GroupProps & { fieldKey: PatchKey; label: string }): ReactNode {
   const value = effective(doc, patch, fieldKey)
   return (
-    <FieldRow label={label} doc={doc} patch={patch} fieldKey={fieldKey}>
+    <FieldRow
+      label={label}
+      doc={doc}
+      patch={patch}
+      fieldKey={fieldKey}
+      fieldAttention={fieldAttention}
+    >
       <input
         id={`field-${fieldKey}`}
         className="input"
@@ -79,7 +96,7 @@ export function EssentialsGroup(
   props: GroupProps & { showInvoiceNumber: boolean }
 ): ReactNode {
   const { t } = useTranslation()
-  const { doc, patch, setField, showInvoiceNumber } = props
+  const { doc, patch, setField, showInvoiceNumber, fieldAttention } = props
   const income = doc.direction === 'income'
   const description = effective(doc, patch, 'description')
   return (
@@ -94,7 +111,13 @@ export function EssentialsGroup(
       {showInvoiceNumber ? (
         <TextField {...props} fieldKey="invoiceNumber" label={t('review.invoiceNumber')} />
       ) : null}
-      <FieldRow label={t('review.description')} doc={doc} patch={patch} fieldKey="description">
+      <FieldRow
+        label={t('review.description')}
+        doc={doc}
+        patch={patch}
+        fieldKey="description"
+        fieldAttention={fieldAttention}
+      >
         <textarea
           id="field-description"
           className="textarea"
@@ -107,10 +130,6 @@ export function EssentialsGroup(
   )
 }
 
-// Expander state survives switching documents within a session
-// (module-level memory; intentionally reset only by an app restart).
-const detailsMemory = { open: false }
-
 /**
  * Single collapsed "More details" section: invoice number (while not flagged),
  * service period, due date, the user's own side of the parties, VAT IDs,
@@ -122,16 +141,27 @@ export function MoreDetailsSection(
 ): ReactNode {
   const { t } = useTranslation()
   const { doc, patch, setField, showInvoiceNumber } = props
-  const [open, setOpen] = useState(detailsMemory.open)
+  const income = doc.direction === 'income'
+  const detailFields = [
+    ...(!showInvoiceNumber ? ['invoiceNumber'] : []),
+    'serviceDateFrom',
+    'serviceDateTo',
+    'dueDate',
+    income ? 'issuerName' : 'recipientName',
+    'issuerCountryCode',
+    'issuerVatId',
+    'recipientCountryCode',
+    'recipientVatId',
+    'recipientIsBusiness',
+    'expenseCategory'
+  ]
+  const flaggedDetails = detailFields.filter((field) => props.fieldAttention[field]).length
+  const [open, setOpen] = useState(flaggedDetails > 0)
+  useEffect(() => {
+    if (flaggedDetails > 0) setOpen(true)
+  }, [flaggedDetails])
   const business = effective(doc, patch, 'recipientIsBusiness')
   const upper = (s: string): string => s.toUpperCase()
-  const income = doc.direction === 'income'
-
-  const toggle = (): void =>
-    setOpen((v) => {
-      detailsMemory.open = !v
-      return !v
-    })
 
   const issuerName = <TextField {...props} fieldKey="issuerName" label={t('review.issuerName')} />
   const issuerExtras = (
@@ -169,6 +199,7 @@ export function MoreDetailsSection(
         doc={doc}
         patch={patch}
         fieldKey="recipientIsBusiness"
+        fieldAttention={props.fieldAttention}
       >
         <select
           id="field-recipientIsBusiness"
@@ -191,9 +222,17 @@ export function MoreDetailsSection(
 
   return (
     <section className="field-group">
-      <button type="button" className="details-toggle" aria-expanded={open} onClick={toggle}>
+      <button
+        type="button"
+        className="details-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
         <Icon name={open ? 'chevron-down' : 'chevron-right'} size={13} />
         {t('review.moreDetails')}
+        {flaggedDetails > 0 ? (
+          <span className="details-attention-count">{flaggedDetails}</span>
+        ) : null}
       </button>
       {open ? (
         <div className="mt-8">
@@ -205,30 +244,24 @@ export function MoreDetailsSection(
           <DateField {...props} fieldKey="dueDate" label={t('review.dueDate')} />
 
           <h3 className="section-title mt-16">{t('review.groupParties')}</h3>
-          <p className="small muted" style={{ marginBottom: 10 }}>
-            {t('review.counterpartyHint', { direction: t(`direction.${doc.direction}`) })}
-          </p>
           {income ? (
             <>
-              {/* counterparty (recipient) name is up in the essentials */}
               {recipientExtras}
-              <div style={{ opacity: 0.75 }}>
+              <div className="secondary-party-fields">
                 {issuerName}
                 {issuerExtras}
               </div>
             </>
           ) : (
             <>
-              {/* counterparty (issuer) name is up in the essentials */}
               {issuerExtras}
-              <div style={{ opacity: 0.75 }}>
+              <div className="secondary-party-fields">
                 {recipientName}
                 {recipientExtras}
               </div>
             </>
           )}
 
-          <h3 className="section-title mt-16">{t('review.groupDescription')}</h3>
           <TextField {...props} fieldKey="expenseCategory" label={t('review.category')} />
         </div>
       ) : null}
@@ -239,24 +272,37 @@ export function MoreDetailsSection(
 export function AmountsGroup(props: GroupProps): ReactNode {
   const { t } = useTranslation()
   const lang = activeLanguage()
-  const { doc, patch, setField } = props
+  const { doc, patch, setField, fieldAttention } = props
 
   const currency = (effective(doc, patch, 'originalCurrency') ?? 'EUR').toUpperCase()
   const rate = effective(doc, patch, 'exchangeRateToEur')
   const isEur = currency === 'EUR'
   const rateSource = effective(doc, patch, 'exchangeRateSource')
+  const isBmfMonthlyRate = rateSource?.startsWith('BMF USt-Umrechnungskurs') === true
+  const bmfPeriod = isBmfMonthlyRate ? rateSource?.match(/(\d{4}-\d{2})$/)?.[1] : undefined
+  const rateSourceLabel =
+    rateSource === 'manual'
+      ? t('common.manual')
+      : isBmfMonthlyRate
+        ? t('review.bmfRateSource', { period: bmfPeriod ?? '' })
+        : rateSource
 
   const amountField = (
     fieldKey: 'netAmountOriginal' | 'vatAmountOriginal' | 'grossAmountOriginal',
-    label: string,
-    confAlias: string
+    label: string
   ): ReactNode => {
     const value = effective(doc, patch, fieldKey)
     const numeric = typeof value === 'number' ? value : null
     const mirror =
       !isEur && numeric !== null && typeof rate === 'number' ? round2(numeric * rate) : null
     return (
-      <FieldRow label={label} doc={doc} patch={patch} fieldKey={fieldKey} confKeys={[confAlias]}>
+      <FieldRow
+        label={label}
+        doc={doc}
+        patch={patch}
+        fieldKey={fieldKey}
+        fieldAttention={fieldAttention}
+      >
         <div className="row">
           <MoneyInput
             id={`field-${fieldKey}`}
@@ -283,7 +329,7 @@ export function AmountsGroup(props: GroupProps): ReactNode {
         doc={doc}
         patch={patch}
         fieldKey="originalCurrency"
-        confKeys={['currency']}
+        fieldAttention={fieldAttention}
       >
         <input
           id="field-originalCurrency"
@@ -297,9 +343,9 @@ export function AmountsGroup(props: GroupProps): ReactNode {
           }}
         />
       </FieldRow>
-      {amountField('netAmountOriginal', t('review.netAmount'), 'netAmount')}
-      {amountField('vatAmountOriginal', t('review.vatAmount'), 'vatAmount')}
-      {amountField('grossAmountOriginal', t('review.grossAmount'), 'grossAmount')}
+      {amountField('netAmountOriginal', t('review.netAmount'))}
+      {amountField('vatAmountOriginal', t('review.vatAmount'))}
+      {amountField('grossAmountOriginal', t('review.grossAmount'))}
 
       {doc.vatRates.length > 0 ? (
         <p className="small muted">
@@ -325,12 +371,13 @@ export function AmountsGroup(props: GroupProps): ReactNode {
             doc={doc}
             patch={patch}
             fieldKey="exchangeRateToEur"
+            fieldAttention={fieldAttention}
           >
             <div className="row">
               <MoneyInput
                 id="field-exchangeRateToEur"
                 value={typeof rate === 'number' ? rate : null}
-                digits={6}
+                digits={10}
                 ariaLabel={t('review.exchangeRateManual')}
                 onCommit={(v) => {
                   setField('exchangeRateToEur', v)
@@ -340,11 +387,27 @@ export function AmountsGroup(props: GroupProps): ReactNode {
               <span className="small muted">
                 {rateSource
                   ? t('review.exchangeRateSource', {
-                      source: rateSource === 'manual' ? t('common.manual') : rateSource
+                      source: rateSourceLabel
                     })
                   : null}
               </span>
             </div>
+            {isBmfMonthlyRate ? (
+              <span className="rate-attribution">
+                <span className="small muted">
+                  <a
+                    className="link-btn"
+                    href={BMF_RATES_DATASET_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {t('review.bmfRateDataset')}
+                  </a>{' '}
+                  · {t('review.bmfRateLicense')}
+                </span>
+                <span className="small muted">{t('review.bmfRateScope')}</span>
+              </span>
+            ) : null}
           </FieldRow>
         </>
       ) : null}

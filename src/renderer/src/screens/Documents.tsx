@@ -1,10 +1,8 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type {
   AttentionLevel,
-  DocumentDirection,
   LlmStatus,
-  ReviewStatus,
   TaxDocument
 } from '@shared/domain'
 import { attentionForDocument } from '@core/review/attention'
@@ -12,45 +10,52 @@ import { api, errorToKey } from '../lib/api'
 import { emitDataChanged, useDataVersion } from '../lib/bus'
 import { activeLanguage } from '../i18n'
 import { formatIsoDate, todayIso } from '../lib/format'
+import {
+  documentsSessionState,
+  rememberDocumentsSessionState,
+  type DocumentsFilters
+} from '../lib/documentsSession'
 import { usePeriod } from '../context/PeriodContext'
-import { useRouter, type ClientDocFilter, type DocumentsPreset } from '../context/RouterContext'
+import { useRouter, type DocumentsPreset } from '../context/RouterContext'
 import { useSettings } from '../context/SettingsContext'
 import { useToast } from '../context/ToastContext'
 import { AttentionBadge, ATTENTION_LEVELS } from '../components/AttentionBadge'
-import { DocumentRow } from '../components/DocumentRow'
+import { counterpartyName, DocumentRow } from '../components/DocumentRow'
 import { ConfirmDialog, Dialog } from '../components/Dialog'
 import { Icon } from '../components/Icon'
 
 /** Choices of the select-by-kind menu next to the select-all checkbox. */
-const SELECT_MENU_CHOICES = ['all', 'ok', 'minor', 'rings', 'triangles', 'none'] as const
+const SELECT_MENU_CHOICES = [
+  'all',
+  'confirmed',
+  'ok',
+  'minor',
+  'warning',
+  'critical',
+  'none'
+] as const
 type SelectMenuChoice = (typeof SELECT_MENU_CHOICES)[number]
 
 function selectChoiceMatches(choice: SelectMenuChoice, level: AttentionLevel): boolean {
   switch (choice) {
     case 'all':
       return true
+    case 'confirmed':
+      return level === 'confirmed'
     case 'ok':
       return level === 'ok'
     case 'minor':
       return level === 'minor'
-    case 'rings':
-      return level === 'ok' || level === 'minor'
-    case 'triangles':
-      return level === 'warning' || level === 'critical'
+    case 'warning':
+      return level === 'warning'
+    case 'critical':
+      return level === 'critical'
     case 'none':
       return false
   }
 }
 
 const PAGE_SIZE = 100
-
-interface Filters {
-  search: string
-  direction: DocumentDirection | ''
-  reviewStatus: ReviewStatus | ''
-  includeDeleted: boolean
-  clientFilter: ClientDocFilter | null
-}
 
 function needsPaymentDate(doc: TaxDocument): boolean {
   return doc.paymentDate === null && doc.paymentStatus !== 'unpaid'
@@ -64,16 +69,13 @@ function needsExchangeRate(doc: TaxDocument): boolean {
   )
 }
 
-// Filters survive navigating into a document and back (module-level memory;
-// intentionally reset only by a new preset or app restart — a fresh start
-// therefore never sees stale shapes from earlier sessions).
-const filterMemory: { filters: Filters | null; search: string; allPeriods: boolean } = {
-  filters: null,
-  search: '',
-  allPeriods: false
-}
-
-export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
+export function Documents({
+  preset,
+  routeEntryId
+}: {
+  preset?: DocumentsPreset
+  routeEntryId: number
+}): ReactNode {
   const { t } = useTranslation()
   const lang = activeLanguage()
   const { year: periodYear, quarter: periodQuarter, setQuarter } = usePeriod()
@@ -82,24 +84,14 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   const toast = useToast()
   const dataVersion = useDataVersion()
 
-  const [filters, setFilters] = useState<Filters>(() =>
-    !preset && filterMemory.filters
-      ? filterMemory.filters
-      : {
-          search: preset?.search ?? '',
-          direction: preset?.direction ?? '',
-          reviewStatus: preset?.reviewStatus ?? '',
-          includeDeleted: false,
-          clientFilter: preset?.clientFilter ?? null
-        }
-  )
+  const [initialView] = useState(() => documentsSessionState(routeEntryId, preset))
+  const [filters, setFilters] = useState<DocumentsFilters>(() => initialView.filters)
   // Local override: ignore the global period entirely ("alle Zeiträume").
   // Shown as a dismissible chip while active.
-  const [allPeriods, setAllPeriods] = useState(() =>
-    !preset && filterMemory.filters ? filterMemory.allPeriods : false
-  )
+  const [allPeriods, setAllPeriods] = useState(initialView.allPeriods)
   const [docs, setDocs] = useState<TaxDocument[]>([])
   const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
   // Whether any documents exist at all (ignoring filters) — drives the
   // friendlier "nothing in this period" empty state vs. the true empty state.
   const [hasAnyDocuments, setHasAnyDocuments] = useState<boolean | null>(null)
@@ -109,11 +101,15 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   const [pickedDate, setPickedDate] = useState(todayIso())
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[] | null>(null)
   const [confirmBulkIds, setConfirmBulkIds] = useState<string[] | null>(null)
-  const [attentionFilter, setAttentionFilter] = useState<ReadonlySet<AttentionLevel>>(new Set())
-
-  const [searchText, setSearchText] = useState(
-    !preset && filterMemory.filters ? filterMemory.search : (preset?.search ?? '')
+  const [confirmEmptyTrash, setConfirmEmptyTrash] = useState(false)
+  const [emptyingTrash, setEmptyingTrash] = useState(false)
+  const [savingCopies, setSavingCopies] = useState(false)
+  const [attentionFilter, setAttentionFilter] = useState<ReadonlySet<AttentionLevel>>(
+    () => new Set(initialView.attentionLevels)
   )
+  const selectAllRef = useRef<HTMLInputElement>(null)
+
+  const [searchText, setSearchText] = useState(initialView.searchText)
 
   // Local LLM checker status — the bulk "KI-Check" action is only offered
   // when the feature is enabled and the model is ready.
@@ -137,26 +133,13 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   const llmReady = settings.llmCheckerEnabled && llmStatus?.state === 'ready'
 
   useEffect(() => {
-    filterMemory.filters = filters
-    filterMemory.search = searchText
-    filterMemory.allPeriods = allPeriods
-  }, [filters, searchText, allPeriods])
-
-  // A new preset (e.g. from global search or overview links) resets the
-  // filters and uses the global period as-is.
-  useEffect(() => {
-    if (!preset) return
-    setSearchText(preset.search ?? '')
-    setFilters((f) => ({
-      ...f,
-      search: preset.search ?? '',
-      direction: preset.direction ?? '',
-      reviewStatus: preset.reviewStatus ?? '',
-      clientFilter: preset.clientFilter ?? null
-    }))
-    setAllPeriods(false)
-    setOffset(0)
-  }, [preset])
+    rememberDocumentsSessionState(routeEntryId, {
+      filters,
+      searchText,
+      allPeriods,
+      attentionLevels: [...attentionFilter]
+    })
+  }, [routeEntryId, filters, searchText, allPeriods, attentionFilter])
 
   // Debounce typed search into the effective filter.
   useEffect(() => {
@@ -168,6 +151,7 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
 
   const fetchDocs = useCallback(
     async (nextOffset: number, append: boolean) => {
+      if (!append) setLoading(true)
       try {
         const filter: Record<string, unknown> = {
           limit: filters.clientFilter ? 500 : PAGE_SIZE,
@@ -179,10 +163,12 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
         if (!allPeriods) {
           filter.year = periodYear
           if (periodQuarter !== null) filter.quarter = periodQuarter
+          filter.includeUnassigned = true
         }
         if (filters.direction !== '') filter.direction = filters.direction
         if (filters.reviewStatus !== '') filter.reviewStatus = filters.reviewStatus
         if (filters.includeDeleted) filter.includeDeleted = true
+        filter.sort = filters.sort
         const result = await api().listDocuments(filter)
         setDocs((current) => (append ? [...current, ...result.documents] : result.documents))
         setTotal(result.total)
@@ -194,6 +180,8 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
         }
       } catch (err) {
         toast.error(t(errorToKey(err)))
+      } finally {
+        if (!append) setLoading(false)
       }
     },
     [filters, allPeriods, periodYear, periodQuarter, toast, t]
@@ -205,9 +193,9 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
     void fetchDocs(0, false)
   }, [fetchDocs, dataVersion])
 
-  // The trash toggle is only offered when the trash actually holds documents:
-  // probe totals with and without deleted once per data change.
-  const [hasTrash, setHasTrash] = useState(false)
+  // Trash is global rather than period-scoped, so keep its total independent
+  // from the currently visible document query.
+  const [trashCount, setTrashCount] = useState(0)
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -216,9 +204,9 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
           api().listDocuments({ includeDeleted: true, limit: 1 }),
           api().listDocuments({ limit: 1 })
         ])
-        if (!cancelled) setHasTrash(withDeleted.total > activeOnly.total)
+        if (!cancelled) setTrashCount(Math.max(0, withDeleted.total - activeOnly.total))
       } catch {
-        if (!cancelled) setHasTrash(false)
+        if (!cancelled) setTrashCount(0)
       }
     })()
     return () => {
@@ -232,7 +220,11 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   const showAllYears = useCallback(async () => {
     setQuarter(null)
     try {
-      const probe: Record<string, unknown> = { year: periodYear, limit: 1 }
+      const probe: Record<string, unknown> = {
+        year: periodYear,
+        includeUnassigned: true,
+        limit: 1
+      }
       if (filters.search.trim() !== '') probe.search = filters.search.trim()
       if (filters.direction !== '') probe.direction = filters.direction
       if (filters.reviewStatus !== '') probe.reviewStatus = filters.reviewStatus
@@ -249,6 +241,7 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
     if (filters.clientFilter === 'rate_missing') list = list.filter(needsExchangeRate)
     return list
   }, [docs, filters.clientFilter])
+  const documentCount = filters.clientFilter ? visibleDocs.length : total
 
   const activeDocs = useMemo(() => visibleDocs.filter((d) => d.deletedAt === null), [visibleDocs])
   const trashedDocs = visibleDocs.filter((d) => d.deletedAt !== null)
@@ -320,6 +313,16 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   }
 
   const allSelected = shownDocs.length > 0 && shownDocs.every((d) => selection.has(d.id))
+  const partiallySelected = selection.size > 0 && !allSelected
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = partiallySelected
+  }, [partiallySelected])
+
+  const hasExplicitFilters =
+    filters.search.trim() !== '' ||
+    filters.direction !== '' ||
+    filters.reviewStatus !== '' ||
+    filters.clientFilter !== null
 
   const runBulk = async (fn: () => Promise<void>, successToast?: string): Promise<void> => {
     try {
@@ -334,6 +337,7 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   }
 
   const ids = [...selection]
+  const selectionHasCritical = ids.some((id) => levelOf.get(id) === 'critical')
 
   const runBulkConfirm = (targets: string[]): void => {
     void runBulk(async () => {
@@ -344,40 +348,168 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
   // ok/minor selections confirm directly; selections containing potentially
   // tax-relevant problems (warning/critical) get an extra ConfirmDialog.
   const bulkConfirm = (): void => {
+    if (selectionHasCritical) {
+      toast.error(t('documents.bulkConfirmBlocked'))
+      return
+    }
     const hasTaxRelevant = ids.some((id) => {
       const level = levelOf.get(id)
-      return level === 'warning' || level === 'critical'
+      return level === 'warning'
     })
     if (hasTaxRelevant) setConfirmBulkIds(ids)
     else runBulkConfirm(ids)
   }
 
-  const set = <K extends keyof Filters>(key: K, value: Filters[K]): void => {
+  const saveCopies = async (targets: string[]): Promise<void> => {
+    if (savingCopies || targets.length === 0) return
+    setSavingCopies(true)
+    try {
+      const result = await api().saveDocumentCopies(targets)
+      if (result.canceled) return
+      if (result.saved > 0) {
+        toast.success(t('documents.copiesSavedToast', { count: result.saved }))
+      }
+      if (result.failed > 0) {
+        toast.error(t('documents.copiesSavePartial', { count: result.failed }))
+      }
+    } catch (err) {
+      toast.error(t(errorToKey(err)))
+    } finally {
+      setSavingCopies(false)
+    }
+  }
+
+  const runBulkAction = (action: string): void => {
+    switch (action) {
+      case 'payment-today':
+        void runBulk(() => api().setPaymentDate({ ids, mode: 'date', date: todayIso() }))
+        break
+      case 'payment-invoice':
+        void runBulk(() => api().setPaymentDate({ ids, mode: 'invoice_date' }))
+        break
+      case 'payment-pick':
+        setPickDateFor(ids)
+        break
+      case 'payment-unpaid':
+        void runBulk(() => api().setPaymentDate({ ids, mode: 'not_paid' }))
+        break
+      case 'move-income':
+        void runBulk(() => api().setDirection({ ids, direction: 'income' }))
+        break
+      case 'move-expense':
+        void runBulk(() => api().setDirection({ ids, direction: 'expense' }))
+        break
+      case 're-extract':
+        void runBulk(async () => {
+          const res = await api().reExtractDocuments(ids)
+          toast.success(t('documents.reExtractDone', { updated: res.updated, skipped: res.skipped }))
+        })
+        break
+      case 'llm':
+        void runBulk(async () => {
+          const res = await api().runLlmCheck(ids)
+          toast.success(t('llm.bulkQueuedToast', { queued: res.queued, skipped: res.skipped }))
+        })
+        break
+    }
+  }
+
+  const deleteDocuments = async (targets: string[]): Promise<void> => {
+    try {
+      const result = await api().deleteDocuments(targets, 'trash')
+      if (result.deleted > 0) {
+        toast.success(t('documents.bulkDeletedToast', { count: result.deleted }))
+      }
+      if (result.failed > 0) {
+        toast.error(t('documents.bulkDeletePartial', { count: result.failed }))
+      }
+    } catch (err) {
+      toast.error(t(errorToKey(err)))
+    } finally {
+      setSelection(new Set())
+      emitDataChanged()
+    }
+  }
+
+  const emptyTrash = async (): Promise<void> => {
+    if (emptyingTrash) return
+    setEmptyingTrash(true)
+    try {
+      const result = await api().emptyTrash()
+      if (result.deleted > 0) {
+        toast.success(t('documents.trashEmptiedToast', { count: result.deleted }))
+      }
+      if (result.failed > 0) {
+        toast.error(t('documents.emptyTrashPartial', { count: result.failed }))
+      }
+      if (result.failed === 0) {
+        setFilters((current) => ({ ...current, includeDeleted: false }))
+        setTrashCount(0)
+      } else {
+        setTrashCount((current) => Math.max(0, current - result.deleted))
+      }
+      setConfirmEmptyTrash(false)
+      emitDataChanged()
+    } catch (err) {
+      toast.error(t(errorToKey(err)))
+      emitDataChanged()
+    } finally {
+      setEmptyingTrash(false)
+    }
+  }
+
+  const clearFilters = (): void => {
+    setSearchText('')
+    setFilters((current) => ({
+      ...current,
+      search: '',
+      direction: '',
+      reviewStatus: '',
+      clientFilter: null
+    }))
+  }
+
+  const set = <K extends keyof DocumentsFilters>(key: K, value: DocumentsFilters[K]): void => {
     setFilters((f) => ({ ...f, [key]: value }))
   }
 
   return (
-    <div className="content-inner">
-      <h1 className="section-title">{t('documents.title')}</h1>
-      <div className="toolbar">
-        <input
-          className="input"
-          type="search"
-          style={{ width: 200 }}
-          placeholder={t('search.placeholder')}
-          aria-label={t('search.aria')}
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
-        />
+    <div className="content-inner documents-page" aria-busy={loading}>
+      <header className="page-header">
+        <h1>{t('documents.title')}</h1>
+        {!loading ? (
+          <span className="page-count num">{t('documents.total', { count: documentCount })}</span>
+        ) : null}
+      </header>
+      <div className="toolbar filter-toolbar">
+        <label className="filter-search">
+          <Icon name="search" size={14} />
+          <input
+            type="search"
+            placeholder={t('search.placeholder')}
+            aria-label={t('search.aria')}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+        </label>
         <select
           className="select"
           aria-label={t('documents.filterDirection')}
           value={filters.direction}
-          onChange={(e) => set('direction', e.target.value as Filters['direction'])}
+          onChange={(e) => set('direction', e.target.value as DocumentsFilters['direction'])}
         >
           <option value="">{t('common.all')}</option>
           <option value="income">{t('direction.income_plural')}</option>
           <option value="expense">{t('direction.expense_plural')}</option>
+        </select>
+        <select
+          className="select"
+          aria-label={t('documents.sortLabel')}
+          value={filters.sort}
+          onChange={(e) => set('sort', e.target.value as DocumentsFilters['sort'])}
+        >
+          <option value="newest">{t('documents.sortNewest')}</option>
+          <option value="oldest">{t('documents.sortOldest')}</option>
         </select>
         {filters.reviewStatus !== '' ? (
           <span className="chip chip-neutral">
@@ -423,34 +555,83 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
             </button>
           </span>
         ) : null}
-        {hasTrash ? (
-          <label className="checkbox-row small muted" style={{ marginLeft: 'auto' }}>
-            <input
-              type="checkbox"
-              checked={filters.includeDeleted}
-              onChange={(e) => set('includeDeleted', e.target.checked)}
-            />
-            {t('documents.showTrash')}
-          </label>
+        {trashCount > 0 ? (
+          <div className="trash-toolbar-actions">
+            <label
+              className="checkbox-row small muted trash-toolbar-toggle"
+              aria-label={`${t('documents.showTrash')} (${trashCount})`}
+            >
+              <input
+                type="checkbox"
+                checked={filters.includeDeleted}
+                onChange={(e) => set('includeDeleted', e.target.checked)}
+              />
+              <span>{t('documents.showTrash')}</span>
+              <span className="trash-count num" aria-hidden="true">
+                {trashCount}
+              </span>
+            </label>
+            <button
+              type="button"
+              className="btn btn-sm trash-empty-button"
+              disabled={emptyingTrash}
+              onClick={() => setConfirmEmptyTrash(true)}
+            >
+              <Icon name="trash" size={13} />
+              {t('documents.emptyTrash')}
+            </button>
+          </div>
         ) : null}
       </div>
 
-      {activeDocs.length === 0 && trashedDocs.length === 0 ? (
-        !allPeriods && hasAnyDocuments === true ? (
-          <div className="card empty-state">
-            <p>{t('documents.emptyFiltered')}</p>
+      {loading && docs.length === 0 ? (
+        <div
+          className="card doc-list document-skeletons"
+          role="status"
+          aria-label={t('app.loading')}
+        >
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="doc-row skeleton-row">
+              <span className="skeleton-dot" />
+              <span className="doc-main">
+                <span className="skeleton-line medium" />
+                <span className="skeleton-line short" />
+              </span>
+              <span className="skeleton-line amount" />
+            </div>
+          ))}
+        </div>
+      ) : activeDocs.length === 0 && trashedDocs.length === 0 ? (
+        hasExplicitFilters ? (
+          <div className="card empty-state rich-empty-state">
+            <span className="empty-icon"><Icon name="search" size={20} /></span>
+            <strong>{t('documents.noMatches')}</strong>
+            <button type="button" className="btn mt-16" onClick={clearFilters}>
+              {t('documents.clearFilters')}
+            </button>
+          </div>
+        ) : !allPeriods && hasAnyDocuments === true ? (
+          <div className="card empty-state rich-empty-state">
+            <span className="empty-icon"><Icon name="search" size={20} /></span>
+            <strong>{t('documents.emptyFiltered')}</strong>
             <button type="button" className="btn mt-16" onClick={() => void showAllYears()}>
               {t('documents.showAllYears')}
             </button>
           </div>
         ) : (
-          <div className="card empty-state">{t('documents.empty')}</div>
+          <div className="card empty-state rich-empty-state">
+            <span className="empty-icon"><Icon name="documents" size={20} /></span>
+            <strong>{t('documents.emptyTitle')}</strong>
+            <button type="button" className="btn btn-primary mt-16" onClick={() => push({ name: 'overview' })}>
+              <Icon name="upload" size={14} /> {t('documents.addDocuments')}
+            </button>
+          </div>
         )
-      ) : (
+      ) : activeDocs.length === 0 ? null : (
         <>
-          <div data-tour="confirm-flow">
-            <div className="row small mb-8" style={{ flexWrap: 'wrap' }}>
-              {ATTENTION_LEVELS.map((level) => (
+          <div className="document-list-tools" data-tour="confirm-flow">
+            <div className="row small attention-filters">
+              {ATTENTION_LEVELS.filter((level) => attentionCounts[level] > 0).map((level) => (
                 <button
                   key={level}
                   type="button"
@@ -461,13 +642,15 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
                   onClick={() => toggleAttentionFilter(level)}
                 >
                   <AttentionBadge level={level} size={12} />
+                  <span>{t(`attention.label.${level}`)}</span>
                   <span>{attentionCounts[level]}</span>
                 </button>
               ))}
             </div>
-            <div className="row small muted mb-16">
+            <div className="row small muted selection-tools">
               <label className="checkbox-row">
                 <input
+                  ref={selectAllRef}
                   type="checkbox"
                   checked={allSelected}
                   aria-label={t('documents.selectAll')}
@@ -490,14 +673,13 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
                   {t('documents.selectMenuLabel')}
                 </option>
                 <option value="all">{t('documents.selectMenuAll')}</option>
+                <option value="confirmed">{t('documents.selectMenuConfirmed')}</option>
                 <option value="ok">{t('documents.selectMenuOk')}</option>
                 <option value="minor">{t('documents.selectMenuMinor')}</option>
-                <option value="rings">{t('documents.selectMenuRings')}</option>
-                <option value="triangles">{t('documents.selectMenuTriangles')}</option>
+                <option value="warning">{t('documents.selectMenuWarning')}</option>
+                <option value="critical">{t('documents.selectMenuCritical')}</option>
                 <option value="none">{t('documents.selectMenuNone')}</option>
               </select>
-              <span>·</span>
-              <span>{t('documents.total', { count: total })}</span>
             </div>
           </div>
           <div className="card doc-list">
@@ -509,8 +691,44 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
                 selected={selection.has(doc.id)}
                 onToggleSelect={toggleSelect}
                 onOpen={(id) => push({ name: 'review', id })}
+                trailing={
+                  <span className="doc-row-actions">
+                    <button
+                      type="button"
+                      className="icon-btn doc-row-action"
+                      aria-label={`${t('common.edit')}: ${counterpartyName(doc)?.trim() || doc.storedFilename}`}
+                      title={t('common.edit')}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        push({ name: 'review', id: doc.id })
+                      }}
+                    >
+                      <Icon name="edit" size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn doc-row-action danger"
+                      aria-label={`${t('common.delete')}: ${counterpartyName(doc)?.trim() || doc.storedFilename}`}
+                      title={t('common.delete')}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setConfirmDeleteIds([doc.id])
+                      }}
+                    >
+                      <Icon name="trash" size={13} />
+                    </button>
+                  </span>
+                }
               />
             ))}
+            {shownDocs.length === 0 ? (
+              <div className="empty-state filtered-empty">
+                <strong>{t('documents.noAttentionMatches')}</strong>
+                <button type="button" className="btn btn-sm" onClick={() => setAttentionFilter(new Set())}>
+                  {t('documents.clearAttentionFilters')}
+                </button>
+              </div>
+            ) : null}
           </div>
           {!filters.clientFilter && docs.length < total ? (
             <div className="row mt-16" style={{ justifyContent: 'center' }}>
@@ -540,19 +758,34 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
                 doc={doc}
                 onOpen={(id) => push({ name: 'review', id })}
                 trailing={
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      void runBulk(
-                        () => api().restoreDocument(doc.id),
-                        t('review.restoredToast')
-                      )
-                    }}
-                  >
-                    <Icon name="restore" size={13} /> {t('common.restore')}
-                  </button>
+                  <span className="doc-row-actions">
+                    <button
+                      type="button"
+                      className="icon-btn doc-row-action"
+                      aria-label={`${t('documents.saveCopy')}: ${counterpartyName(doc)?.trim() || doc.storedFilename}`}
+                      title={t('documents.saveCopy')}
+                      disabled={savingCopies}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void saveCopies([doc.id])
+                      }}
+                    >
+                      <Icon name="download" size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void runBulk(
+                          () => api().restoreDocument(doc.id),
+                          t('review.restoredToast')
+                        )
+                      }}
+                    >
+                      <Icon name="restore" size={13} /> {t('common.restore')}
+                    </button>
+                  </span>
                 }
               />
             ))}
@@ -562,87 +795,61 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
 
       {selection.size > 0 ? (
         <div className="bulk-bar" role="toolbar" aria-label={t('documents.selected', { count: selection.size })}>
-          <span className="small muted">{t('documents.selected', { count: selection.size })}</span>
-          <button type="button" className="btn btn-sm btn-primary" onClick={bulkConfirm}>
-            ✓ {t('documents.bulkConfirm')}
-          </button>
-          <span className="small muted">{t('documents.bulkPayment')}:</span>
+          <strong className="small">{t('documents.selected', { count: selection.size })}</strong>
           <button
             type="button"
-            className="btn btn-sm"
-            onClick={() =>
-              void runBulk(() => api().setPaymentDate({ ids, mode: 'date', date: todayIso() }))
-            }
+            className="btn btn-sm btn-primary"
+            disabled={selectionHasCritical}
+            title={selectionHasCritical ? t('documents.bulkConfirmBlocked') : undefined}
+            onClick={bulkConfirm}
           >
-            {t('documents.bulkPaymentToday')}
+            <Icon name="check" size={13} /> {t('documents.bulkConfirm')}
           </button>
           <button
             type="button"
             className="btn btn-sm"
-            onClick={() => void runBulk(() => api().setPaymentDate({ ids, mode: 'invoice_date' }))}
+            disabled={savingCopies}
+            onClick={() => void saveCopies(ids)}
           >
-            {t('documents.bulkPaymentInvoiceDate')}
-          </button>
-          <button type="button" className="btn btn-sm" onClick={() => setPickDateFor(ids)}>
-            {t('documents.bulkPaymentPick')}
+            <Icon name="download" size={13} />
+            {savingCopies
+              ? t('documents.savingCopies')
+              : selection.size === 1
+                ? t('documents.saveCopy')
+                : t('documents.saveCopies')}
           </button>
           <button
             type="button"
-            className="btn btn-sm"
-            onClick={() => void runBulk(() => api().setPaymentDate({ ids, mode: 'not_paid' }))}
-          >
-            {t('documents.bulkPaymentNotPaid')}
-          </button>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => void runBulk(() => api().setDirection({ ids, direction: 'income' }))}
-          >
-            {t('documents.bulkMoveIncome')}
-          </button>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => void runBulk(() => api().setDirection({ ids, direction: 'expense' }))}
-          >
-            {t('documents.bulkMoveExpense')}
-          </button>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() =>
-              void runBulk(async () => {
-                const res = await api().reExtractDocuments(ids)
-                toast.success(
-                  t('documents.reExtractDone', { updated: res.updated, skipped: res.skipped })
-                )
-              })
-            }
-          >
-            {t('documents.bulkReExtract')}
-          </button>
-          {llmReady ? (
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() =>
-                void runBulk(async () => {
-                  const res = await api().runLlmCheck(ids)
-                  toast.success(
-                    t('llm.bulkQueuedToast', { queued: res.queued, skipped: res.skipped })
-                  )
-                })
-              }
-            >
-              {t('documents.bulkLlmCheck')}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="btn btn-sm btn-danger"
+            className="btn btn-sm btn-danger bulk-delete-btn"
             onClick={() => setConfirmDeleteIds(ids)}
           >
             <Icon name="trash" size={13} /> {t('documents.bulkDelete')}
+          </button>
+          <select
+            className="select bulk-actions-select"
+            aria-label={t('documents.bulkActions')}
+            value=""
+            onChange={(event) => runBulkAction(event.target.value)}
+          >
+            <option value="" disabled>{t('documents.bulkActions')}</option>
+            <optgroup label={t('documents.bulkPayment')}>
+              <option value="payment-today">{t('documents.bulkPaymentToday')}</option>
+              <option value="payment-invoice">{t('documents.bulkPaymentInvoiceDate')}</option>
+              <option value="payment-pick">{t('documents.bulkPaymentPick')}</option>
+              <option value="payment-unpaid">{t('documents.bulkPaymentNotPaid')}</option>
+            </optgroup>
+            <option value="move-income">{t('documents.bulkMoveIncome')}</option>
+            <option value="move-expense">{t('documents.bulkMoveExpense')}</option>
+            <option value="re-extract">{t('documents.bulkReExtract')}</option>
+            {llmReady ? <option value="llm">{t('documents.bulkLlmCheck')}</option> : null}
+          </select>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label={t('common.close')}
+            onClick={() => setSelection(new Set())}
+          >
+            <Icon name="close" size={14} />
           </button>
         </div>
       ) : null}
@@ -699,19 +906,59 @@ export function Documents({ preset }: { preset?: DocumentsPreset }): ReactNode {
 
       {confirmDeleteIds ? (
         <ConfirmDialog
-          title={t('documents.bulkDeleteConfirmTitle')}
-          body={t('documents.bulkDeleteConfirmBody', { count: confirmDeleteIds.length })}
+          title={
+            confirmDeleteIds.length === 1
+              ? t('review.deleteTitle')
+              : t('documents.bulkDeleteConfirmTitle')
+          }
+          body={
+            confirmDeleteIds.length === 1
+              ? t('review.deleteBody')
+              : t('documents.bulkDeleteConfirmBody', { count: confirmDeleteIds.length })
+          }
           danger
           confirmLabel={t('common.delete')}
           onCancel={() => setConfirmDeleteIds(null)}
           onConfirm={() => {
             const targets = confirmDeleteIds
             setConfirmDeleteIds(null)
-            void runBulk(async () => {
-              for (const id of targets) await api().deleteDocument(id, 'trash')
-            }, t('review.deletedToast'))
+            void deleteDocuments(targets)
           }}
         />
+      ) : null}
+
+      {confirmEmptyTrash ? (
+        <Dialog
+          title={t('documents.emptyTrashTitle')}
+          onClose={() => {
+            if (!emptyingTrash) setConfirmEmptyTrash(false)
+          }}
+          footer={
+            <>
+              <button
+                type="button"
+                className="btn"
+                disabled={emptyingTrash}
+                onClick={() => setConfirmEmptyTrash(false)}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={emptyingTrash}
+                onClick={() => void emptyTrash()}
+              >
+                <Icon name="trash" size={13} />
+                {emptyingTrash
+                  ? t('documents.emptyingTrash')
+                  : t('documents.emptyTrash')}
+              </button>
+            </>
+          }
+        >
+          <p>{t('documents.emptyTrashBody', { count: trashCount })}</p>
+        </Dialog>
       ) : null}
     </div>
   )

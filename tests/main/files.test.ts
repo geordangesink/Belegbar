@@ -7,6 +7,7 @@ import crypto from 'node:crypto'
 import {
   atomicMove,
   copyAndVerify,
+  copyAndVerifyReplacing,
   hasPdfMagic,
   moveToTrash,
   sha256File
@@ -76,6 +77,42 @@ describe('copyAndVerify', () => {
     const dest = write('dest.pdf', 'other')
     await expect(copyAndVerify(src, dest, sha256('data'))).rejects.toThrow()
     expect(fs.readFileSync(dest, 'utf8')).toBe('other')
+  })
+})
+
+describe('copyAndVerifyReplacing', () => {
+  it('replaces an existing destination only after verification', async () => {
+    const src = write('src.pdf', 'verified replacement')
+    const dest = write('dest.pdf', 'old destination')
+
+    await copyAndVerifyReplacing(src, dest, sha256('verified replacement'))
+
+    expect(fs.readFileSync(src, 'utf8')).toBe('verified replacement')
+    expect(fs.readFileSync(dest, 'utf8')).toBe('verified replacement')
+    expect(fs.readdirSync(dir).sort()).toEqual(['dest.pdf', 'src.pdf'])
+  })
+
+  it('preserves the existing destination when verification fails', async () => {
+    const src = write('src.pdf', 'new content')
+    const dest = write('dest.pdf', 'keep me')
+
+    await expect(copyAndVerifyReplacing(src, dest, 'deadbeef')).rejects.toThrow(
+      'copy_verification_failed'
+    )
+
+    expect(fs.readFileSync(src, 'utf8')).toBe('new content')
+    expect(fs.readFileSync(dest, 'utf8')).toBe('keep me')
+    expect(fs.readdirSync(dir).sort()).toEqual(['dest.pdf', 'src.pdf'])
+  })
+
+  it('never replaces the source with itself', async () => {
+    const src = write('src.pdf', 'original')
+
+    await expect(copyAndVerifyReplacing(src, src, sha256('original'))).rejects.toThrow(
+      'source_destination_same'
+    )
+
+    expect(fs.readFileSync(src, 'utf8')).toBe('original')
   })
 })
 

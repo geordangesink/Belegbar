@@ -32,10 +32,9 @@ export const CHECKED_FIELDS = [
 ] as const
 export type CheckedField = (typeof CHECKED_FIELDS)[number]
 
-/** Confidence floor applied when the model agrees with a candidate. */
-const AGREEMENT_CONFIDENCE = 0.92
-/** Confidence ceiling applied when the model disagrees with a candidate. */
-const DISAGREEMENT_CONFIDENCE = 0.55
+const MEDIUM_AGREEMENT_CONFIDENCE = 0.85
+const HIGH_AGREEMENT_CONFIDENCE = 0.92
+const STRONG_DISAGREEMENT_CONFIDENCE = 0.55
 
 const LLM_DISAGREEMENT_CODE = 'llm_disagreement'
 
@@ -57,9 +56,10 @@ export function buildOutputSchema(): object {
       type: 'object',
       properties: {
         agrees: { type: 'boolean' },
-        suggested: { type: ['string', 'null'] }
+        suggested: { type: ['string', 'null'] },
+        confidence: { type: 'string', enum: ['low', 'medium', 'high'] }
       },
-      required: ['agrees', 'suggested']
+      required: ['agrees', 'suggested', 'confidence']
     }
   }
   return {
@@ -120,7 +120,8 @@ export function buildCheckPrompt(
       'invoice text. agrees=true when the candidate is correct (allow formatting ' +
       'differences: date formats, thousand separators, currency symbols, case, ' +
       'minor OCR noise). When wrong or missing, agrees=false and put the correct ' +
-      "value from the text in 'suggested' (null if not present in the text).",
+      "value from the text in 'suggested' (null if not present in the text). " +
+      "Set confidence to low, medium, or high for how certain you are about that verdict.",
     'Invoice text:\n"""\n' + text + '\n"""',
     'Candidates:\n' + candidates,
     'Return only a JSON object with a verdict for every candidate field.'
@@ -156,7 +157,20 @@ export function parseModelOutput(raw: string): Record<string, LlmFieldVerdict> |
     if (suggestedRaw !== null && suggestedRaw !== undefined && typeof suggestedRaw !== 'string') {
       continue
     }
-    verdicts[field] = { agrees, suggested: typeof suggestedRaw === 'string' ? suggestedRaw : null }
+    const confidence = entry['confidence']
+    if (
+      confidence !== undefined &&
+      confidence !== 'low' &&
+      confidence !== 'medium' &&
+      confidence !== 'high'
+    ) {
+      continue
+    }
+    verdicts[field] = {
+      agrees,
+      suggested: typeof suggestedRaw === 'string' ? suggestedRaw : null,
+      ...(confidence ? { confidence } : {})
+    }
   }
   return verdicts
 }
@@ -170,6 +184,8 @@ export interface VerdictMergeResult {
    * in place — never duplicated). Assign it to doc.issues as-is.
    */
   newIssues: DocumentIssue[]
+  /** normalized verdicts actually used for calibration */
+  verdicts?: Record<string, LlmFieldVerdict>
   /** true when at least one field changed confidence or gained an issue */
   changed: boolean
 }
@@ -328,9 +344,9 @@ function isSameDisagreement(existing: DocumentIssue, next: DocumentIssue): boole
 
 /**
  * Merge a model verdict into the document's confidence/issue state.
- *  - agreement: confidence = max(current, 0.92)
- *  - disagreement: confidence = min(current, 0.55) + 'llm_disagreement'
- *    warning issue with { field, suggested } params
+ *  - medium/high agreement: confidence floor 0.85/0.92
+ *  - low-certainty disagreement: recorded only, scanner evidence wins
+ *  - actionable disagreement: confidence ceiling 0.55 + reviewable issue
  *  - fields the user corrected manually (no entry in fieldConfidence) are
  *    never touched
  */
@@ -340,6 +356,7 @@ export function mergeVerdict(
 ): VerdictMergeResult {
   const fieldConfidence: Record<string, number> = { ...doc.fieldConfidence }
   const issues: DocumentIssue[] = [...doc.issues]
+  const verdicts: Record<string, LlmFieldVerdict> = {}
   let changed = false
 
   for (const [field, verdict] of Object.entries(result.fields)) {
@@ -357,9 +374,26 @@ export function mergeVerdict(
 
     const agrees =
       verdict.agrees || isFormattingOnlyMatch(field, docFieldValue(doc, field), verdict.suggested)
+    const normalizedVerdict: LlmFieldVerdict = { ...verdict, agrees }
+    verdicts[field] = normalizedVerdict
 
     if (agrees) {
-      const next = Math.max(current, AGREEMENT_CONFIDENCE)
+      for (let i = issues.length - 1; i >= 0; i--) {
+        if (issues[i]?.code === LLM_DISAGREEMENT_CODE && issues[i]?.field === field) {
+          issues.splice(i, 1)
+          changed = true
+        }
+      }
+      const value = docFieldValue(doc, field)
+      const hasCandidate = value !== null && value !== undefined && value !== ''
+      const certainty = verdict.confidence ?? 'medium'
+      const agreementFloor =
+        certainty === 'high'
+          ? HIGH_AGREEMENT_CONFIDENCE
+          : certainty === 'medium'
+            ? MEDIUM_AGREEMENT_CONFIDENCE
+            : current
+      const next = hasCandidate ? Math.max(current, agreementFloor) : current
       if (next !== current) {
         fieldConfidence[confKey] = next
         changed = true
@@ -367,7 +401,17 @@ export function mergeVerdict(
       continue
     }
 
-    const next = Math.min(current, DISAGREEMENT_CONFIDENCE)
+    if (verdict.confidence === 'low') {
+      for (let i = issues.length - 1; i >= 0; i--) {
+        if (issues[i]?.code === LLM_DISAGREEMENT_CODE && issues[i]?.field === field) {
+          issues.splice(i, 1)
+          changed = true
+        }
+      }
+      continue
+    }
+
+    const next = Math.min(current, STRONG_DISAGREEMENT_CONFIDENCE)
     if (next !== current) {
       fieldConfidence[confKey] = next
       changed = true
@@ -391,5 +435,5 @@ export function mergeVerdict(
     }
   }
 
-  return { fieldConfidence, newIssues: issues, changed }
+  return { fieldConfidence, newIssues: issues, verdicts, changed }
 }

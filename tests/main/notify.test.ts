@@ -297,7 +297,10 @@ function makePipeline(onBatchDone: (summary: BatchSummary) => void): {
     dataDir,
     repos: makeFakeRepos(),
     extraction,
-    ratesProvider: { name: 'test', getRate: async () => null },
+    ratesProviders: {
+      bmf: { name: 'test-bmf', getRate: async () => null },
+      ecb: { name: 'test-ecb', getRate: async () => null }
+    },
     emit: (progress) => {
       if (TERMINAL.has(progress.status)) terminals.push(progress)
     },

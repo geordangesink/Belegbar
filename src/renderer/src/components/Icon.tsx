@@ -11,6 +11,7 @@ export type IconName =
   | 'chevron-down'
   | 'chevron-right'
   | 'back'
+  | 'edit'
   | 'trash'
   | 'restore'
   | 'external'
@@ -23,6 +24,10 @@ export type IconName =
   | 'thumbs'
   | 'history'
   | 'upload'
+  | 'download'
+  | 'lock'
+  | 'more'
+  | 'sparkles'
 
 const PATHS: Record<IconName, ReactNode> = {
   overview: (
@@ -63,6 +68,12 @@ const PATHS: Record<IconName, ReactNode> = {
   'chevron-down': <path d="m6 9 6 6 6-6" />,
   'chevron-right': <path d="m9 6 6 6-6 6" />,
   back: <path d="M19 12H5m7-7-7 7 7 7" />,
+  edit: (
+    <>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+    </>
+  ),
   trash: (
     <>
       <path d="M3 6h18" />
@@ -131,6 +142,34 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
       <path d="m7 8 5-5 5 5" />
       <path d="M12 3v13" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M12 15V3" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="4" y="10" width="16" height="11" rx="3" />
+      <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+      <path d="M12 14v3" />
+    </>
+  ),
+  more: (
+    <>
+      <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" />
+    </>
+  ),
+  sparkles: (
+    <>
+      <path d="m12 3 1.2 3.4L16.5 8l-3.3 1.6L12 13l-1.2-3.4L7.5 8l3.3-1.6L12 3Z" />
+      <path d="m5 14 .8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14Z" />
+      <path d="m19 12 .7 1.8 1.8.7-1.8.7L19 17l-.7-1.8-1.8-.7 1.8-.7L19 12Z" />
     </>
   )
 }

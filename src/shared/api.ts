@@ -6,6 +6,7 @@ import type {
   AppSettings,
   LlmStatus,
   AuditEvent,
+  DeleteDocumentsResult,
   DocumentDirection,
   ImportFileProgress,
   IncomeTaxEstimate,
@@ -43,6 +44,12 @@ export interface ExportResult {
   errorKey?: string
 }
 
+export interface SaveDocumentCopiesResult {
+  canceled: boolean
+  saved: number
+  failed: number
+}
+
 export interface BelegbarApi {
   // import
   importFiles(payload: ImportFilesPayload): Promise<ImportStartResult>
@@ -76,7 +83,13 @@ export interface BelegbarApi {
    */
   reExtractDocuments(ids: string[]): Promise<{ updated: number; skipped: number }>
   deleteDocument(id: string, mode?: 'trash' | 'hard'): Promise<void>
+  deleteDocuments(
+    ids: string[],
+    mode?: 'trash' | 'hard'
+  ): Promise<DeleteDocumentsResult>
+  emptyTrash(): Promise<DeleteDocumentsResult>
   restoreDocument(id: string): Promise<void>
+  saveDocumentCopies(ids: string[]): Promise<SaveDocumentCopiesResult>
   /** returns the PDF bytes for in-app preview */
   getDocumentPdf(id: string): Promise<ArrayBuffer>
   revealDocument(id: string): Promise<void>

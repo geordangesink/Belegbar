@@ -28,9 +28,6 @@ export function TourPrompt({
 
   return (
     <Dialog title={t('tour.promptTitle')} onClose={onDismiss}>
-      <p className="small muted" style={{ marginBottom: 12 }}>
-        {t('tour.promptBody')}
-      </p>
       <div className="option-cards">
         {options.map((opt) => (
           <button

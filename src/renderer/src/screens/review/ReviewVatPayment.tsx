@@ -7,7 +7,11 @@ import { activeLanguage } from '../../i18n'
 import { formatIsoDate, todayIso } from '../../lib/format'
 import { useToast } from '../../context/ToastContext'
 import { Dialog } from '../../components/Dialog'
-import { VAT_TREATMENT_OPTIONS, treatmentDescKey, treatmentLabelKey } from '../../lib/vatTreatments'
+import {
+  treatmentDescKey,
+  treatmentLabelKey,
+  vatTreatmentOptionsForDirection
+} from '../../lib/vatTreatments'
 
 /**
  * The full stored classification (reasons, unresolved questions) is not part
@@ -34,19 +38,32 @@ export function VatGroup({
 }): ReactNode {
   const { t } = useTranslation()
   const toast = useToast()
-  const [showWhy, setShowWhy] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickedCode, setPickedCode] = useState<string>(doc.vatTreatmentCode ?? 'UNKNOWN_REVIEW')
   const [reason, setReason] = useState('')
+  const [savingTreatment, setSavingTreatment] = useState(false)
 
   const classification = storedClassification(doc)
   const reasons = [
-    ...(Array.isArray(classification?.reasons) ? classification.reasons : []),
-    ...doc.reviewReasons
+    ...new Set([
+      ...(Array.isArray(classification?.reasons) ? classification.reasons : []),
+      ...doc.reviewReasons
+    ])
   ]
-  const questions = Array.isArray(classification?.unresolvedQuestions)
-    ? classification.unresolvedQuestions
-    : []
+  const questions = [
+    ...new Set(
+      Array.isArray(classification?.unresolvedQuestions)
+        ? classification.unresolvedQuestions
+        : []
+    )
+  ]
+  const hasRationale = reasons.length > 0 || questions.length > 0
+  const treatmentOptions = vatTreatmentOptionsForDirection(doc.direction, doc.vatTreatmentCode)
+  const needsDecision = classification?.requiresUserConfirmation === true
+  const canAcceptSuggestion =
+    needsDecision &&
+    doc.vatTreatmentCode !== null &&
+    doc.vatTreatmentCode !== 'UNKNOWN_REVIEW'
 
   const label = doc.vatTreatmentCode
     ? t(treatmentLabelKey(doc.vatTreatmentCode), {
@@ -54,12 +71,14 @@ export function VatGroup({
       })
     : (doc.vatTreatmentLabel ?? t('vat.treatment.UNKNOWN_REVIEW'))
 
-  const applyTreatment = async (): Promise<void> => {
+  const applyTreatment = async (code: string, auditReason?: string): Promise<void> => {
+    if (savingTreatment) return
+    setSavingTreatment(true)
     try {
       await api().setVatTreatment({
         id: doc.id,
-        code: pickedCode,
-        reason: reason.trim() === '' ? undefined : reason.trim()
+        code,
+        reason: auditReason?.trim() === '' ? undefined : auditReason?.trim()
       })
       setPickerOpen(false)
       setReason('')
@@ -68,62 +87,93 @@ export function VatGroup({
       onChanged()
     } catch (err) {
       toast.error(t(errorToKey(err)))
+    } finally {
+      setSavingTreatment(false)
     }
+  }
+
+  const openPicker = (): void => {
+    const currentIsApplicable = treatmentOptions.some(({ code }) => code === doc.vatTreatmentCode)
+    setReason('')
+    setPickedCode(
+      currentIsApplicable
+        ? (doc.vatTreatmentCode as string)
+        : (treatmentOptions[0]?.code ?? 'UNKNOWN_REVIEW')
+    )
+    setPickerOpen(true)
+  }
+
+  const closePicker = (): void => {
+    setPickerOpen(false)
+    setReason('')
   }
 
   return (
     <section className="field-group">
       <h2 className="section-title">{t('review.groupVat')}</h2>
       <div className="stack">
-        <div>
-          <div className="small muted">{t('review.currentTreatment')}</div>
-          <div style={{ fontWeight: 600 }}>{label}</div>
-          {doc.vatLegalBasis ? (
-            <div className="small muted">
-              {t('review.legalBasis')}: {doc.vatLegalBasis}
-            </div>
-          ) : null}
+        <div className="row vat-treatment-summary">
+          <div className="vat-treatment-copy">
+            <strong className="vat-treatment-label">{label}</strong>
+            {needsDecision ? (
+              <div className="small vat-treatment-decision-label">
+                {t('review.treatmentNeedsDecision')}
+              </div>
+            ) : null}
+            {doc.vatLegalBasis ? (
+              <div className="small muted">
+                {t('review.legalBasis')}: {doc.vatLegalBasis}
+              </div>
+            ) : null}
+          </div>
+          <div className="vat-treatment-actions">
+            {canAcceptSuggestion ? (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={savingTreatment}
+                onClick={() => void applyTreatment(doc.vatTreatmentCode as string)}
+              >
+                {t('review.acceptTreatment')}
+              </button>
+            ) : null}
+            <button
+              id="field-vatTreatmentCode"
+              type="button"
+              className={`btn btn-sm${needsDecision && !canAcceptSuggestion ? ' btn-primary' : ''}`}
+              disabled={savingTreatment}
+              onClick={openPicker}
+            >
+              {needsDecision ? t('review.chooseTreatment') : t('review.changeTreatment')}
+            </button>
+          </div>
         </div>
-        <div className="row">
-          <button
-            type="button"
-            className="expand-btn"
-            aria-expanded={showWhy}
-            onClick={() => setShowWhy((v) => !v)}
-          >
-            {t('review.why')}
-          </button>
-          <button type="button" className="btn btn-sm" onClick={() => setPickerOpen(true)}>
-            {t('review.changeTreatment')}
-          </button>
-        </div>
-        {showWhy ? (
-          <div className="inline-note info">
-            <div>
+        {hasRationale ? (
+          <details className="vat-rationale">
+            <summary className="expand-btn">{t('review.why')}</summary>
+            <div className="inline-note info">
               {reasons.length > 0 ? (
-                <>
-                  <div style={{ fontWeight: 600 }}>{t('review.whyReasons')}</div>
-                  <ul style={{ paddingLeft: 18, margin: '4px 0' }}>
+                <div>
+                  <strong className="vat-rationale-heading">{t('review.whyReasons')}</strong>
+                  <ul className="vat-rationale-list">
                     {reasons.map((r, i) => (
                       <li key={i}>{t(`reasons.${r}`, { defaultValue: r })}</li>
                     ))}
                   </ul>
-                </>
-              ) : (
-                <div>{t('vat.treatmentDesc.UNKNOWN_REVIEW')}</div>
-              )}
+                </div>
+              ) : null}
               {questions.length > 0 ? (
-                <>
-                  <div style={{ fontWeight: 600 }}>{t('review.whyQuestions')}</div>
-                  <ul style={{ paddingLeft: 18, margin: '4px 0' }}>
+                <div>
+                  <strong className="vat-rationale-heading">{t('review.whyQuestions')}</strong>
+                  <ul className="vat-rationale-list">
                     {questions.map((q, i) => (
                       <li key={i}>{t(`reasons.${q}`, { defaultValue: q })}</li>
                     ))}
                   </ul>
-                </>
+                </div>
               ) : null}
             </div>
-          </div>
+          </details>
         ) : null}
       </div>
 
@@ -131,20 +181,25 @@ export function VatGroup({
         <Dialog
           title={t('review.treatmentPickerTitle')}
           wide
-          onClose={() => setPickerOpen(false)}
+          onClose={closePicker}
           footer={
             <>
-              <button type="button" className="btn" onClick={() => setPickerOpen(false)}>
+              <button type="button" className="btn" onClick={closePicker}>
                 {t('common.cancel')}
               </button>
-              <button type="button" className="btn btn-primary" onClick={() => void applyTreatment()}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={savingTreatment}
+                onClick={() => void applyTreatment(pickedCode, reason)}
+              >
                 {t('common.confirm')}
               </button>
             </>
           }
         >
           <div className="option-cards">
-            {VAT_TREATMENT_OPTIONS.map((opt) => (
+            {treatmentOptions.map((opt) => (
               <button
                 key={opt.code}
                 type="button"
@@ -209,8 +264,8 @@ export function PaymentGroup({
     <section className="field-group">
       <h2 className="section-title">{t('review.groupPayment')}</h2>
       <div className="stack">
-        <div className="row">
-          <span className="status-glyph neutral" aria-hidden="true">
+        <div className={`row payment-status ${doc.paymentStatus}`}>
+          <span className={`status-glyph ${doc.paymentStatus === 'paid' ? 'ok' : 'neutral'}`} aria-hidden="true">
             {statusGlyph}
           </span>
           <span>
@@ -218,7 +273,7 @@ export function PaymentGroup({
             {doc.paymentDate ? ` · ${formatIsoDate(doc.paymentDate, lang)}` : ''}
           </span>
         </div>
-        <div className="row" style={{ flexWrap: 'wrap' }} data-tour="payment-actions">
+        <div className="row payment-actions" data-tour="payment-actions">
           <button type="button" className="btn btn-sm" onClick={() => void setPayment('date', todayIso())}>
             {t('review.paymentQuickToday')}
           </button>

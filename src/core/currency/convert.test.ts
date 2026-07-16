@@ -103,9 +103,19 @@ describe('extractInlineRate', () => {
     expect(extractInlineRate('11 USD = 10 EUR')).toBeNull()
   })
 
-  it('rejects non-ISO currencies and text without a rate', () => {
+  it('accepts an auditable crypto rate printed on the document', () => {
+    expect(extractInlineRate('1 USDT = 0.923456 EUR')).toEqual({
+      currency: 'USDT',
+      rateToEur: 0.923456
+    })
+    expect(extractInlineRate('1 EUR = 1.083888 USDT')?.rateToEur).toBeCloseTo(
+      1 / 1.083888,
+      12
+    )
+  })
+
+  it('rejects unknown assets and text without a rate', () => {
     expect(extractInlineRate('1 XYZ = 0.5 EUR')).toBeNull()
-    expect(extractInlineRate('1 USDT = 0.9 EUR')).toBeNull()
     expect(extractInlineRate('Total due: 42.00 EUR')).toBeNull()
   })
 

@@ -8,6 +8,7 @@ import {
   mergeVerdict,
   parseModelOutput
 } from './verdict'
+import { attentionForDocument } from '../review/attention'
 
 // ---------------------------------------------------------------------------
 // fixtures
@@ -105,6 +106,7 @@ function makeResult(
 
 interface SchemaNode {
   type?: string | string[]
+  enum?: string[]
   properties?: Record<string, SchemaNode>
   required?: string[]
 }
@@ -129,16 +131,24 @@ describe('buildOutputSchema', () => {
     expect(fields.required).toEqual([...CHECKED_FIELDS])
   })
 
-  it('every field verdict is { agrees: boolean, suggested: string|null }, both required', () => {
+  it('requires a verdict, suggestion, and certainty for every field', () => {
     const fields = buildOutputSchema() as SchemaNode
     const fieldProps = fields.properties!.fields!.properties!
     for (const field of CHECKED_FIELDS) {
       const verdict = fieldProps[field]!
       expect(verdict.type, field).toBe('object')
-      expect(verdict.required, field).toEqual(['agrees', 'suggested'])
-      expect(Object.keys(verdict.properties ?? {}), field).toEqual(['agrees', 'suggested'])
+      expect(verdict.required, field).toEqual(['agrees', 'suggested', 'confidence'])
+      expect(Object.keys(verdict.properties ?? {}), field).toEqual([
+        'agrees',
+        'suggested',
+        'confidence'
+      ])
       expect(verdict.properties!.agrees, field).toEqual({ type: 'boolean' })
       expect(verdict.properties!.suggested, field).toEqual({ type: ['string', 'null'] })
+      expect(verdict.properties!.confidence, field).toEqual({
+        type: 'string',
+        enum: ['low', 'medium', 'high']
+      })
     }
   })
 
@@ -255,6 +265,26 @@ describe('parseModelOutput', () => {
     })
   })
 
+  it('parses verdict certainty and rejects invalid certainty values', () => {
+    const raw = JSON.stringify({
+      fields: {
+        invoiceDate: {
+          agrees: true,
+          suggested: null,
+          confidence: 'high'
+        },
+        currency: {
+          agrees: true,
+          suggested: null,
+          confidence: 'certain'
+        }
+      }
+    })
+    expect(parseModelOutput(raw)).toEqual({
+      invoiceDate: { agrees: true, suggested: null, confidence: 'high' }
+    })
+  })
+
   it('tolerates leading/trailing junk around the JSON object', () => {
     const raw = `Sure! Here is my verdict:\n${goodPayload}\nHope that helps.`
     expect(parseModelOutput(raw)).toEqual({
@@ -321,10 +351,10 @@ describe('parseModelOutput', () => {
 // ---------------------------------------------------------------------------
 
 describe('mergeVerdict', () => {
-  it('agreement raises confidence to at least 0.92', () => {
+  it('medium agreement turns a moderate scanner reading into recognized', () => {
     const doc = makeDoc()
     const merge = mergeVerdict(doc, makeResult({ invoiceNumber: { agrees: true, suggested: null } }))
-    expect(merge.fieldConfidence.invoiceNumber).toBe(0.92)
+    expect(merge.fieldConfidence.invoiceNumber).toBe(0.85)
     expect(merge.newIssues).toEqual([])
     expect(merge.changed).toBe(true)
   })
@@ -334,6 +364,148 @@ describe('mergeVerdict', () => {
     const merge = mergeVerdict(doc, makeResult({ invoiceNumber: { agrees: true, suggested: null } }))
     expect(merge.fieldConfidence.invoiceNumber).toBe(0.97)
     expect(merge.changed).toBe(false)
+  })
+
+  it('high-certainty agreement promotes a moderate scanner reading to 0.92', () => {
+    const doc = makeDoc({ fieldConfidence: { invoiceNumber: 0.6 } })
+    const merge = mergeVerdict(
+      doc,
+      makeResult({
+        invoiceNumber: { agrees: true, suggested: null, confidence: 'high' }
+      })
+    )
+    expect(merge.fieldConfidence.invoiceNumber).toBe(0.92)
+  })
+
+  it('lets a certain independent agreement corroborate a weak scanner reading', () => {
+    const weak = makeDoc({ fieldConfidence: { invoiceNumber: 0.59 } })
+    expect(
+      mergeVerdict(
+        weak,
+        makeResult({
+          invoiceNumber: { agrees: true, suggested: null, confidence: 'high' }
+        })
+      ).fieldConfidence.invoiceNumber
+    ).toBe(0.92)
+  })
+
+  it('makes a fully corroborated weak scan all-good', () => {
+    const weak = makeDoc({
+      fieldConfidence: {
+        ...makeDoc().fieldConfidence,
+        invoiceDate: 0.4,
+        currency: 0.4,
+        netAmountOriginal: 0.4,
+        vatAmountOriginal: 0.4,
+        grossAmountOriginal: 0.4
+      }
+    })
+    const highAgreement = { agrees: true, suggested: null, confidence: 'high' as const }
+    const merge = mergeVerdict(
+      weak,
+      makeResult({
+        invoiceDate: highAgreement,
+        currency: highAgreement,
+        netAmountOriginal: highAgreement,
+        vatAmountOriginal: highAgreement,
+        grossAmountOriginal: highAgreement
+      })
+    )
+    expect(
+      attentionForDocument({
+        ...weak,
+        fieldConfidence: merge.fieldConfidence,
+        issues: merge.newIssues
+      })
+    ).toBe('ok')
+  })
+
+  it('never invents confidence for a missing candidate', () => {
+    const missing = makeDoc({ invoiceNumber: null, fieldConfidence: { invoiceNumber: 0 } })
+    expect(
+      mergeVerdict(
+        missing,
+        makeResult({
+          invoiceNumber: { agrees: true, suggested: null, confidence: 'high' }
+        })
+      ).fieldConfidence.invoiceNumber
+    ).toBe(0)
+  })
+
+  it('low-certainty agreement keeps the scanner confidence unchanged', () => {
+    const doc = makeDoc({ fieldConfidence: { invoiceNumber: 0.7 } })
+    const merge = mergeVerdict(
+      doc,
+      makeResult({
+        invoiceNumber: { agrees: true, suggested: null, confidence: 'low' }
+      })
+    )
+    expect(merge.fieldConfidence.invoiceNumber).toBe(0.7)
+  })
+
+  it('low-certainty disagreement cannot disturb an all-good scanner result', () => {
+    const strong = makeDoc({
+      fieldConfidence: {
+        ...makeDoc().fieldConfidence,
+        invoiceDate: 0.95,
+        currency: 0.95,
+        netAmountOriginal: 0.95,
+        vatAmountOriginal: 0.95,
+        grossAmountOriginal: 0.95
+      }
+    })
+    const merge = mergeVerdict(
+      strong,
+      makeResult({
+        invoiceDate: {
+          agrees: false,
+          suggested: '2026-07-02',
+          confidence: 'low'
+        }
+      })
+    )
+    expect(merge.fieldConfidence.invoiceDate).toBe(0.95)
+    expect(merge.newIssues).toEqual([])
+    expect(merge.changed).toBe(false)
+    expect(
+      attentionForDocument({
+        ...strong,
+        fieldConfidence: merge.fieldConfidence,
+        issues: merge.newIssues
+      })
+    ).toBe('ok')
+  })
+
+  it('low-certainty disagreement leaves a genuinely weak scan uncertain on its own', () => {
+    const weak = makeDoc({
+      fieldConfidence: {
+        ...makeDoc().fieldConfidence,
+        invoiceDate: 0.5,
+        currency: 0.95,
+        netAmountOriginal: 0.95,
+        vatAmountOriginal: 0.95,
+        grossAmountOriginal: 0.95
+      }
+    })
+    const merge = mergeVerdict(
+      weak,
+      makeResult({
+        invoiceDate: {
+          agrees: false,
+          suggested: '2026-07-02',
+          confidence: 'low'
+        }
+      })
+    )
+    expect(merge.fieldConfidence.invoiceDate).toBe(0.5)
+    expect(merge.newIssues).toEqual([])
+    expect(
+      attentionForDocument({
+        ...weak,
+        fieldConfidence: merge.fieldConfidence,
+        issues: merge.newIssues
+      })
+    ).toBe('warning')
   })
 
   it('disagreement lowers confidence to at most 0.55 and attaches a reviewable issue', () => {
@@ -396,7 +568,7 @@ describe('mergeVerdict', () => {
         doc,
         makeResult({ netAmountOriginal: { agrees: false, suggested } })
       )
-      expect(merge.fieldConfidence.netAmountOriginal).toBe(0.92)
+      expect(merge.fieldConfidence.netAmountOriginal).toBe(0.85)
       expect(merge.newIssues).toEqual([])
     })
 
@@ -406,7 +578,7 @@ describe('mergeVerdict', () => {
         doc,
         makeResult({ netAmountOriginal: { agrees: false, suggested: '1.234' } })
       )
-      expect(merge.fieldConfidence.netAmountOriginal).toBe(0.92)
+      expect(merge.fieldConfidence.netAmountOriginal).toBe(0.85)
       expect(merge.newIssues).toEqual([])
     })
 
@@ -416,7 +588,7 @@ describe('mergeVerdict', () => {
         doc,
         makeResult({ vatAmountOriginal: { agrees: false, suggested: '234,57' } })
       )
-      expect(merge.fieldConfidence.vatAmountOriginal).toBe(0.92)
+      expect(merge.fieldConfidence.vatAmountOriginal).toBe(0.85)
       expect(merge.newIssues).toEqual([])
     })
 
@@ -426,7 +598,7 @@ describe('mergeVerdict', () => {
         doc,
         makeResult({ grossAmountOriginal: { agrees: false, suggested: '-50,00 EUR' } })
       )
-      expect(merge.fieldConfidence.grossAmountOriginal).toBe(0.92)
+      expect(merge.fieldConfidence.grossAmountOriginal).toBe(0.85)
       expect(merge.newIssues).toEqual([])
     })
 
@@ -468,7 +640,7 @@ describe('mergeVerdict', () => {
       (suggested) => {
         const doc = makeDoc()
         const merge = mergeVerdict(doc, makeResult({ invoiceDate: { agrees: false, suggested } }))
-        expect(merge.fieldConfidence.invoiceDate).toBe(0.92)
+        expect(merge.fieldConfidence.invoiceDate).toBe(0.85)
         expect(merge.newIssues).toEqual([])
       }
     )
@@ -479,7 +651,7 @@ describe('mergeVerdict', () => {
         doc,
         makeResult({ invoiceDate: { agrees: false, suggested: '2026-07-01' } })
       )
-      expect(merge.fieldConfidence.invoiceDate).toBe(0.92)
+      expect(merge.fieldConfidence.invoiceDate).toBe(0.85)
       expect(merge.newIssues).toEqual([])
     })
 
@@ -489,7 +661,7 @@ describe('mergeVerdict', () => {
         doc,
         makeResult({ dueDate: { agrees: false, suggested: '15-07-2026' } })
       )
-      expect(merge.fieldConfidence.dueDate).toBe(0.92)
+      expect(merge.fieldConfidence.dueDate).toBe(0.85)
       expect(merge.newIssues).toEqual([])
     })
 
@@ -533,6 +705,47 @@ describe('mergeVerdict', () => {
       field: 'invoiceNumber',
       params: { field: 'invoiceNumber', suggested: 'OLD-1' }
     }
+
+    it('removes an older same-field disagreement when a later check agrees', () => {
+      const otherField: DocumentIssue = {
+        ...oldIssue,
+        field: 'issuerName',
+        params: { field: 'issuerName', suggested: 'ACME AG' }
+      }
+      const doc = makeDoc({
+        issues: [oldIssue, otherField],
+        fieldConfidence: { invoiceNumber: 0.55, issuerName: 0.55 }
+      })
+      const merge = mergeVerdict(
+        doc,
+        makeResult({
+          invoiceNumber: { agrees: true, suggested: null, confidence: 'medium' }
+        })
+      )
+      expect(merge.newIssues).toEqual([otherField])
+      expect(merge.fieldConfidence.invoiceNumber).toBe(0.85)
+      expect(merge.changed).toBe(true)
+    })
+
+    it('clears an older same-field issue when the new disagreement is uncertain', () => {
+      const doc = makeDoc({
+        issues: [oldIssue],
+        fieldConfidence: { invoiceNumber: 0.95 }
+      })
+      const merge = mergeVerdict(
+        doc,
+        makeResult({
+          invoiceNumber: {
+            agrees: false,
+            suggested: 'MAYBE-2',
+            confidence: 'low'
+          }
+        })
+      )
+      expect(merge.fieldConfidence.invoiceNumber).toBe(0.95)
+      expect(merge.newIssues).toEqual([])
+      expect(merge.changed).toBe(true)
+    })
 
     it('replaces an older llm_disagreement for the same field instead of duplicating', () => {
       const unrelated: DocumentIssue = {
@@ -594,8 +807,8 @@ describe('mergeVerdict', () => {
       expect(merge.newIssues).toEqual([])
     })
 
-    it('is false when agreement hits the exact 0.92 floor already', () => {
-      const doc = makeDoc({ fieldConfidence: { issuerName: 0.92 } })
+    it('is false when agreement hits the exact recognized floor already', () => {
+      const doc = makeDoc({ fieldConfidence: { issuerName: 0.85 } })
       const merge = mergeVerdict(doc, makeResult({ issuerName: { agrees: true, suggested: null } }))
       expect(merge.changed).toBe(false)
     })
@@ -620,9 +833,9 @@ describe('mergeVerdict', () => {
           netAmountOriginal: { agrees: false, suggested: '1.234,56' } // formatting-only
         })
       )
-      expect(merge.fieldConfidence.invoiceNumber).toBe(0.92)
+      expect(merge.fieldConfidence.invoiceNumber).toBe(0.85)
       expect(merge.fieldConfidence.issuerName).toBe(0.55)
-      expect(merge.fieldConfidence.netAmountOriginal).toBe(0.92)
+      expect(merge.fieldConfidence.netAmountOriginal).toBe(0.85)
       expect(merge.fieldConfidence.dueDate).toBe(0.8) // unmentioned field untouched
       expect(merge.newIssues).toHaveLength(1)
       expect(merge.newIssues[0]!.field).toBe('issuerName')
@@ -691,10 +904,10 @@ describeLive('mergeVerdict – live-model formatting variants', () => {
         issuerName: { agrees: false, suggested: 'openai llc' }
       })
     )
-    expectLive(merge.fieldConfidence.invoiceNumber).toBeGreaterThanOrEqual(0.92)
-    expectLive(merge.fieldConfidence.invoiceDate).toBeGreaterThanOrEqual(0.92)
-    expectLive(merge.fieldConfidence.currency).toBeGreaterThanOrEqual(0.92)
-    expectLive(merge.fieldConfidence.issuerName).toBeGreaterThanOrEqual(0.92)
+    expectLive(merge.fieldConfidence.invoiceNumber).toBeGreaterThanOrEqual(0.85)
+    expectLive(merge.fieldConfidence.invoiceDate).toBeGreaterThanOrEqual(0.85)
+    expectLive(merge.fieldConfidence.currency).toBeGreaterThanOrEqual(0.85)
+    expectLive(merge.fieldConfidence.issuerName).toBeGreaterThanOrEqual(0.85)
     expectLive(merge.newIssues.filter((i) => i.code === 'llm_disagreement')).toHaveLength(0)
   })
 

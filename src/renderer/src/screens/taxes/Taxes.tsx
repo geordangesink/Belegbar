@@ -14,9 +14,10 @@ export function Taxes({ initialTab }: { initialTab?: 'vat' | 'income' }): ReactN
   }, [initialTab])
 
   return (
-    <div className="content-inner">
-      <div className="row mb-24">
-        <div className="seg" role="tablist" aria-label={t('taxes.title')}>
+    <div className="content-inner taxes-page">
+      <header className="page-header compact-page-header taxes-header">
+        <h1>{t('taxes.title')}</h1>
+        <div className="seg tax-tabs" role="tablist" aria-label={t('taxes.title')}>
           <button
             type="button"
             role="tab"
@@ -36,8 +37,10 @@ export function Taxes({ initialTab }: { initialTab?: 'vat' | 'income' }): ReactN
             {t('taxes.tabIncome')}
           </button>
         </div>
+      </header>
+      <div key={tab} className="tab-panel">
+        {tab === 'vat' ? <VatTab /> : <IncomeTab />}
       </div>
-      {tab === 'vat' ? <VatTab /> : <IncomeTab />}
       <p className="disclaimer">{t('taxes.disclaimer')}</p>
     </div>
   )

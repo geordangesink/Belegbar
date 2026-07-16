@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  getBuiltInSoliRules,
+  getBuiltInTariffParams,
   getIncomeTaxEngine,
   listSupportedTaxYears,
   type IncomeTaxEngineInput
@@ -15,6 +17,43 @@ function calc(overrides: Partial<IncomeTaxEngineInput> & { year: number }) {
     ...overrides
   })
 }
+
+describe('bundled official tariff history', () => {
+  it.each([
+    [2022, 10347, 14926, 58596, 9336.45, 17671.2, 16956],
+    [2023, 10908, 15999, 62809, 9972.98, 18307.73, 17543],
+    [2024, 11784, 17005, 66760, 10636.31, 18971.06, 18130]
+  ])(
+    '%i carries the official §32a boundaries and Soli Freigrenze',
+    (year, basicAllowance, zone2End, zone3End, zone4Sub, zone5Sub, soliThreshold) => {
+      expect(getBuiltInTariffParams(year)).toMatchObject({
+        basicAllowance,
+        zone2End,
+        zone3End,
+        zone4: { rate: 0.42, sub: zone4Sub },
+        zone5: { rate: 0.45, sub: zone5Sub }
+      })
+      expect(getBuiltInSoliRules(year)).toEqual({
+        thresholdSingle: soliThreshold,
+        thresholdJoint: soliThreshold * 2,
+        rate: 0.055,
+        mitigationRate: 0.119,
+        centRounding: 'down'
+      })
+    }
+  )
+
+  it.each([
+    [2022, 30000, 4951],
+    [2022, 100000, 32663],
+    [2023, 30000, 4700],
+    [2023, 100000, 32027],
+    [2024, 30000, 4412],
+    [2024, 100000, 31363]
+  ])('%i, zvE %i € → %i €', (year, taxableIncome, expected) => {
+    expect(calc({ year, taxableIncome }).incomeTax).toBe(expected)
+  })
+})
 
 describe('§ 32a EStG tariff 2025', () => {
   // Reference values cross-checked against the published Grundtabelle 2025
@@ -98,9 +137,9 @@ describe('solidarity surcharge', () => {
   })
 
   it('2025: full 5,5 % beyond the mitigation zone', () => {
-    // zvE 300 000 € → tax 115 753 €; 5,5 % = 6 366.42 < 11,9 % cap
+    // SolzG discards fractions of a cent: 5,5 % = 6 366.415 € → 6 366.41 €
     const result = calc({ year: 2025, taxableIncome: 300000 })
-    expect(result.solidaritySurcharge).toBe(6366.42)
+    expect(result.solidaritySurcharge).toBe(6366.41)
   })
 
   it('2025: joint Freigrenze is doubled (39 900 €)', () => {
@@ -117,8 +156,8 @@ describe('solidarity surcharge', () => {
   it('2026: Freigrenze raised to 20 350 €', () => {
     // zvE 74 900 € → tax 20 322 € ≤ 20 350 → no soli
     expect(calc({ year: 2026, taxableIncome: 74900 }).solidaritySurcharge).toBe(0)
-    // zvE 75 000 € → tax 20 364 €; 11,9 % × 14 = 1.67
-    expect(calc({ year: 2026, taxableIncome: 75000 }).solidaritySurcharge).toBe(1.67)
+    // zvE 75 000 € → tax 20 364 €; 11,9 % × 14 = 1.666 € → 1.66 €
+    expect(calc({ year: 2026, taxableIncome: 75000 }).solidaritySurcharge).toBe(1.66)
   })
 
   it('can be disabled', () => {
@@ -175,6 +214,14 @@ describe('marginal and average rates', () => {
 
 describe('engine selection', () => {
   it('returns exact engines for supported years', () => {
+    expect(getIncomeTaxEngine(2022)).toMatchObject({
+      exactYearMatch: true,
+      engine: { year: 2022, version: '2022.1' }
+    })
+    expect(getIncomeTaxEngine(2024)).toMatchObject({
+      exactYearMatch: true,
+      engine: { year: 2024, version: '2024.1' }
+    })
     expect(getIncomeTaxEngine(2025)).toMatchObject({
       exactYearMatch: true,
       engine: { year: 2025, version: '2025.1' }
@@ -191,13 +238,13 @@ describe('engine selection', () => {
     expect(later.engine.year).toBe(2026)
   })
 
-  it('falls back to the earliest engine for years before 2025', () => {
-    const earlier = getIncomeTaxEngine(2024)
+  it('falls back to the earliest engine for years before 2022', () => {
+    const earlier = getIncomeTaxEngine(2021)
     expect(earlier.exactYearMatch).toBe(false)
-    expect(earlier.engine.year).toBe(2025)
+    expect(earlier.engine.year).toBe(2022)
   })
 
   it('lists supported years', () => {
-    expect(listSupportedTaxYears()).toEqual([2025, 2026])
+    expect(listSupportedTaxYears()).toEqual([2022, 2023, 2024, 2025, 2026])
   })
 })

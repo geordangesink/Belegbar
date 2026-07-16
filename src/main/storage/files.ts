@@ -28,10 +28,57 @@ export async function copyAndVerify(
 ): Promise<void> {
   await fsp.mkdir(path.dirname(dest), { recursive: true })
   await fsp.copyFile(src, dest, fs.constants.COPYFILE_EXCL)
-  const actual = await sha256File(dest)
-  if (actual !== expectedSha256) {
-    await fsp.rm(dest, { force: true })
+  try {
+    const actual = await sha256File(dest)
+    if (actual === expectedSha256) return
     throw new Error('copy_verification_failed')
+  } catch (err) {
+    await fsp.rm(dest, { force: true })
+    throw err
+  }
+}
+
+export async function copyAndVerifyReplacing(
+  src: string,
+  dest: string,
+  expectedSha256: string
+): Promise<void> {
+  if (path.resolve(src) === path.resolve(dest)) {
+    throw new Error('source_destination_same')
+  }
+
+  const directory = path.dirname(dest)
+  const token = crypto.randomUUID()
+  const temp = path.join(directory, `.belegbar-${token}.tmp`)
+  const backup = path.join(directory, `.belegbar-${token}.bak`)
+  let existingMoved = false
+  let replacementPlaced = false
+
+  await copyAndVerify(src, temp, expectedSha256)
+  try {
+    try {
+      const stat = await fsp.lstat(dest)
+      if (!stat.isFile()) throw new Error('destination_not_file')
+      await fsp.rename(dest, backup)
+      existingMoved = true
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+    }
+
+    try {
+      await atomicMove(temp, dest)
+      replacementPlaced = true
+    } catch (err) {
+      if (existingMoved) {
+        await fsp.rename(backup, dest).catch(() => undefined)
+      }
+      throw err
+    }
+
+    if (existingMoved) await fsp.rm(backup, { force: true })
+  } finally {
+    await fsp.rm(temp, { force: true })
+    if (replacementPlaced) await fsp.rm(backup, { force: true })
   }
 }
 

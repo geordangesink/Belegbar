@@ -59,10 +59,11 @@ const ATTENTION_LEVELS = ['confirmed', 'ok', 'minor', 'warning', 'critical'] as 
 const SELECT_MENU_KEYS = [
   'selectMenuLabel',
   'selectMenuAll',
+  'selectMenuConfirmed',
   'selectMenuOk',
   'selectMenuMinor',
-  'selectMenuRings',
-  'selectMenuTriangles',
+  'selectMenuWarning',
+  'selectMenuCritical',
   'selectMenuNone'
 ] as const
 
@@ -149,6 +150,10 @@ describe('locale resources', () => {
       expect(enKeys.has(`documents.${key}`), `en documents.${key}`).toBe(true)
     }
     for (const key of ['bulkConfirmWarningTitle', 'bulkConfirmWarningBody'] as const) {
+      expect(deKeys.has(`documents.${key}`), `de documents.${key}`).toBe(true)
+      expect(enKeys.has(`documents.${key}`), `en documents.${key}`).toBe(true)
+    }
+    for (const key of ['sortLabel', 'sortNewest', 'sortOldest'] as const) {
       expect(deKeys.has(`documents.${key}`), `de documents.${key}`).toBe(true)
       expect(enKeys.has(`documents.${key}`), `en documents.${key}`).toBe(true)
     }

@@ -220,6 +220,45 @@ describe('bucketing', () => {
     // estimated payable only counts confirmed + provisional
     expect(summary.estimatedPayable).toBe(38)
   })
+
+  it('excludes a missing exchange rate even when an older record stores it as warning', () => {
+    const missingRate = domesticIncome({
+      reviewStatus: 'needs_review',
+      originalCurrency: 'USD',
+      exchangeRateToEur: null,
+      netAmountOriginal: 100,
+      vatAmountOriginal: 19,
+      grossAmountOriginal: 119,
+      netAmountEur: null,
+      vatAmountEur: null,
+      grossAmountEur: null,
+      issues: [
+        {
+          code: 'missing_exchange_rate',
+          severity: 'warning',
+          messageKey: 'issues.missing_exchange_rate',
+          field: 'exchangeRateToEur'
+        }
+      ]
+    })
+
+    const vat = computeVatSummary([missingRate], Q2_2025, settings())
+    expect(vat.domesticTaxableRevenue.provisionalIds).toEqual([])
+    expect(vat.domesticTaxableRevenue.excludedIds).toEqual([missingRate.id])
+
+    const incomeTax = computeIncomeTaxEstimate(
+      [missingRate],
+      2025,
+      settings({ deductibleContributions: 1 })
+    )
+    expect(incomeTax.recognizedIncome.provisionalIds).toEqual([])
+    expect(incomeTax.recognizedIncome.excludedIds).toEqual([missingRate.id])
+
+    const overview = computeOverview([missingRate], Q2_2025, settings())
+    expect(overview.revenueEur.provisionalIds).toEqual([])
+    expect(overview.revenueEur.excludedIds).toEqual([missingRate.id])
+    expect(overview.exchangeRatesMissing).toBe(1)
+  })
 })
 
 describe('computeVatSummary', () => {
@@ -388,6 +427,41 @@ describe('computeVatSummary', () => {
 })
 
 describe('computeIncomeTaxEstimate', () => {
+  it('keeps business profit and taxable income before personal income tax', () => {
+    const doc = makeDoc({
+      paymentDate: '2026-05-10',
+      netAmountEur: 29692.45,
+      vatAmountEur: 0,
+      grossAmountEur: 29692.45
+    })
+    const estimate = computeIncomeTaxEstimate([doc], 2026, settings())
+
+    expect(estimate.estimatedProfit).toBe(29692.45)
+    expect(estimate.estimatedTaxableIncome).toBe(29692.45)
+    expect(estimate.estimatedIncomeTax).toBe(4130)
+    expect(estimate.estimatedProfit).not.toBe(
+      estimate.estimatedTaxableIncome - estimate.estimatedIncomeTax
+    )
+  })
+
+  it('only adds a church-tax assumption when church tax is enabled', () => {
+    const withoutChurch = computeIncomeTaxEstimate(
+      [],
+      2026,
+      settings({ churchTax: 'none', includeSolidaritySurcharge: true })
+    )
+    const withChurch = computeIncomeTaxEstimate(
+      [],
+      2026,
+      settings({ churchTax: 'rate9', includeSolidaritySurcharge: false })
+    )
+
+    expect(withoutChurch.assumptions.join(' ')).not.toContain('Church tax')
+    expect(withoutChurch.assumptions.join(' ')).toContain('Solidarity surcharge')
+    expect(withChurch.assumptions.join(' ')).toContain('Church tax')
+    expect(withChurch.assumptions.join(' ')).not.toContain('Solidarity surcharge')
+  })
+
   it('computes profit, tax and reserve from recognized documents', () => {
     const docs = [
       makeDoc({
@@ -520,7 +594,7 @@ describe('computeIncomeTaxEstimate', () => {
       2025,
       settings({ incomeTaxMethod: 'unsure' })
     )
-    expect(estimate.incompleteItems.join(' ')).toMatch(/method/i)
+    expect(estimate.assumptions.join(' ')).toMatch(/method/i)
     expect(estimate.isEstimateOnly).toBe(true)
   })
 })

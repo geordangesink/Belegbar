@@ -2,7 +2,7 @@
  * Typed repositories mapping DB rows ↔ domain objects.
  * JSON-ish columns are parsed/stringified here and nowhere else.
  */
-import { and, asc, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { v4 as uuidv4 } from 'uuid'
 import {
@@ -22,8 +22,11 @@ import {
   ocrCache,
   settings
 } from './schema'
+import { isBmfMonthlySource } from '../rates/bmf-monthly'
+import { ECB_SOURCE } from '../rates/ecb'
 
 type DocumentRow = typeof documents.$inferSelect
+type ExchangeRateRow = typeof exchangeRates.$inferSelect
 type Db = BetterSQLite3Database
 
 function nowIso(): string {
@@ -248,6 +251,31 @@ export class DocumentRepository {
     return next
   }
 
+  updateIfUnchanged(
+    doc: TaxDocument,
+    expectedUpdatedAt: string,
+    vatClassification?: unknown
+  ): TaxDocument | null {
+    const next: TaxDocument = { ...doc, updatedAt: nowIso() }
+    const row = documentToRow(next, vatClassification)
+    const { id: _id, createdAt: _createdAt, ...rest } = row
+    if (vatClassification === undefined) {
+      delete (rest as Partial<DocumentRow>).vatClassificationJson
+    }
+    const result = this.db
+      .update(documents)
+      .set(rest)
+      .where(
+        and(
+          eq(documents.id, doc.id),
+          eq(documents.updatedAt, expectedUpdatedAt),
+          isNull(documents.deletedAt)
+        )
+      )
+      .run()
+    return result.changes === 1 ? next : null
+  }
+
   getById(id: string): TaxDocument | null {
     const row = this.db.select().from(documents).where(eq(documents.id, id)).get()
     return row ? rowToDocument(row) : null
@@ -317,6 +345,15 @@ export class DocumentRepository {
       .map(rowToDocument)
   }
 
+  listAllTrashed(): TaxDocument[] {
+    return this.db
+      .select()
+      .from(documents)
+      .where(isNotNull(documents.deletedAt))
+      .all()
+      .map(rowToDocument)
+  }
+
   list(filter: DocumentListFilter): DocumentListPage {
     const conditions: SQL[] = []
     if (!filter.includeDeleted) conditions.push(isNull(documents.deletedAt))
@@ -325,9 +362,22 @@ export class DocumentRepository {
     if (filter.vatTreatmentCode) {
       conditions.push(eq(documents.vatTreatmentCode, filter.vatTreatmentCode))
     }
-    if (filter.year !== undefined) conditions.push(eq(documents.taxPeriodYear, filter.year))
-    if (filter.quarter !== undefined) {
-      conditions.push(eq(documents.taxPeriodQuarter, filter.quarter))
+    const periodCondition =
+      filter.year !== undefined && filter.quarter !== undefined
+        ? and(
+            eq(documents.taxPeriodYear, filter.year),
+            eq(documents.taxPeriodQuarter, filter.quarter)
+          )
+        : filter.year !== undefined
+          ? eq(documents.taxPeriodYear, filter.year)
+          : filter.quarter !== undefined
+            ? eq(documents.taxPeriodQuarter, filter.quarter)
+            : undefined
+    if (periodCondition) {
+      const condition = filter.includeUnassigned
+        ? or(periodCondition, isNull(documents.taxPeriodYear))
+        : periodCondition
+      if (condition) conditions.push(condition)
     }
     if (filter.search && filter.search.trim() !== '') {
       const pattern = `%${escapeLike(filter.search.trim())}%`
@@ -345,15 +395,23 @@ export class DocumentRepository {
     const limit = filter.limit ?? 100
     const offset = filter.offset ?? 0
 
+    const dateOrder =
+      filter.sort === 'oldest' ? asc(documents.invoiceDate) : desc(documents.invoiceDate)
+    const createdOrder =
+      filter.sort === 'oldest' ? asc(documents.createdAt) : desc(documents.createdAt)
+
     const rows = this.db
       .select()
       .from(documents)
       .where(where)
       .orderBy(
-        // invoice date desc, nulls last, stable tiebreak on creation time
-        sql`CASE WHEN ${documents.invoiceDate} IS NULL THEN 1 ELSE 0 END`,
-        desc(documents.invoiceDate),
-        desc(documents.createdAt)
+        ...(filter.sort === 'recent'
+          ? [desc(documents.createdAt)]
+          : [
+              sql`CASE WHEN ${documents.invoiceDate} IS NULL THEN 1 ELSE 0 END`,
+              dateOrder,
+              createdOrder
+            ])
       )
       .limit(limit)
       .offset(offset)
@@ -480,16 +538,11 @@ export interface StoredExchangeRate {
 export class ExchangeRateRepository {
   constructor(private readonly db: Db) {}
 
-  /**
-   * Latest cached rate for `currency` at or before `date`,
-   * at most `maxDaysBack` days older.
-   */
-  find(currency: string, date: string, maxDaysBack = 7): StoredExchangeRate | null {
-    const rows = this.db
-      .select()
-      .from(exchangeRates)
-      .where(eq(exchangeRates.currency, currency.toUpperCase()))
-      .all()
+  private latestWithin(
+    rows: ExchangeRateRow[],
+    date: string,
+    maxDaysBack: number
+  ): StoredExchangeRate | null {
     const limitMs = maxDaysBack * 24 * 60 * 60 * 1000
     const target = Date.parse(date)
     if (Number.isNaN(target)) return null
@@ -507,6 +560,56 @@ export class ExchangeRateRepository {
       }
     }
     return best
+  }
+
+  findBmfMonthly(currency: string, date: string): StoredExchangeRate | null {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null
+    const targetMonth = date.slice(0, 7)
+    const row = this.db
+      .select()
+      .from(exchangeRates)
+      .where(eq(exchangeRates.currency, currency.toUpperCase()))
+      .all()
+      .find(
+        (candidate) =>
+          isBmfMonthlySource(candidate.source) && candidate.date.slice(0, 7) === targetMonth
+      )
+    if (!row) return null
+    return {
+      currency: row.currency,
+      date: row.date,
+      rateToEur: row.rateToEur,
+      source: row.source
+    }
+  }
+
+  findEcbDaily(currency: string, date: string, maxDaysBack = 7): StoredExchangeRate | null {
+    const rows = this.db
+      .select()
+      .from(exchangeRates)
+      .where(
+        and(
+          eq(exchangeRates.currency, currency.toUpperCase()),
+          eq(exchangeRates.source, ECB_SOURCE)
+        )
+      )
+      .all()
+    return this.latestWithin(rows, date, maxDaysBack)
+  }
+
+  /**
+   * Official BMF monthly rate for the requested month, otherwise the latest
+   * cached rate at or before `date`, at most `maxDaysBack` days older.
+   */
+  find(currency: string, date: string, maxDaysBack = 7): StoredExchangeRate | null {
+    const monthly = this.findBmfMonthly(currency, date)
+    if (monthly) return monthly
+    const rows = this.db
+      .select()
+      .from(exchangeRates)
+      .where(eq(exchangeRates.currency, currency.toUpperCase()))
+      .all()
+    return this.latestWithin(rows, date, maxDaysBack)
   }
 
   save(rate: StoredExchangeRate): void {

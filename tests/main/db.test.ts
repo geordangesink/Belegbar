@@ -5,6 +5,7 @@ import path from 'node:path'
 import { openDatabase, type DbHandle } from '../../src/main/db/connection'
 import { appliedSchemaVersion, CURRENT_SCHEMA_VERSION } from '../../src/main/db/migrations'
 import { createRepositories, type Repositories } from '../../src/main/db/repository'
+import { BMF_MONTHLY_SOURCE } from '../../src/main/rates/bmf-monthly'
 import type { TaxDocument } from '../../src/shared/domain'
 
 let dir: string
@@ -180,6 +181,37 @@ describe('DocumentRepository', () => {
     expect(loaded.updatedAt >= doc.updatedAt).toBe(true)
   })
 
+  it('only applies guarded background updates to an unchanged active document', () => {
+    const doc = fullDocument()
+    repos.documents.insert(doc)
+
+    const updated = repos.documents.updateIfUnchanged(
+      { ...doc, description: 'Fresh extraction' },
+      doc.updatedAt
+    )
+    expect(updated?.description).toBe('Fresh extraction')
+
+    const stale = repos.documents.updateIfUnchanged(
+      { ...doc, description: 'Stale extraction' },
+      doc.updatedAt
+    )
+    expect(stale).toBeNull()
+    expect(repos.documents.getById(doc.id)?.description).toBe('Fresh extraction')
+
+    const current = repos.documents.getById(doc.id)!
+    const deleted = repos.documents.update({
+      ...current,
+      deletedAt: '2026-07-16T12:00:00.000Z'
+    })
+    expect(
+      repos.documents.updateIfUnchanged(
+        { ...deleted, description: 'Should not resurrect' },
+        deleted.updatedAt
+      )
+    ).toBeNull()
+    expect(repos.documents.getById(doc.id)?.deletedAt).not.toBeNull()
+  })
+
   it('detects duplicates by sha256, ignoring deleted documents', () => {
     const sha = 'b'.repeat(64)
     const doc = fullDocument({ id: '11111111-1111-4111-8111-111111111111', sha256: sha })
@@ -193,7 +225,11 @@ describe('DocumentRepository', () => {
 
   it('lists with filters, search and pagination; nulls sort last', () => {
     repos.documents.insert(
-      fullDocument({ id: '22222222-2222-4222-8222-222222222222', sha256: 'd'.repeat(64) })
+      fullDocument({
+        id: '22222222-2222-4222-8222-222222222222',
+        sha256: 'd'.repeat(64),
+        createdAt: '2026-02-11T10:00:00.000Z'
+      })
     )
     repos.documents.insert(
       fullDocument({
@@ -203,7 +239,8 @@ describe('DocumentRepository', () => {
         invoiceDate: '2026-03-05',
         issuerName: 'Max Beispiel',
         recipientName: 'Kunde AG',
-        invoiceNumber: 'INV-77'
+        invoiceNumber: 'INV-77',
+        createdAt: '2026-01-01T10:00:00.000Z'
       })
     )
     repos.documents.insert(
@@ -213,7 +250,8 @@ describe('DocumentRepository', () => {
         invoiceDate: null,
         taxPeriodYear: null,
         taxPeriodQuarter: null,
-        taxPeriodMonth: null
+        taxPeriodMonth: null,
+        createdAt: '2026-04-01T10:00:00.000Z'
       })
     )
 
@@ -225,9 +263,30 @@ describe('DocumentRepository', () => {
       '22222222-2222-4222-8222-222222222222',
       '44444444-4444-4444-8444-444444444444'
     ])
+    expect(repos.documents.list({ sort: 'oldest' }).documents.map((d) => d.id)).toEqual([
+      '22222222-2222-4222-8222-222222222222',
+      '33333333-3333-4333-8333-333333333333',
+      '44444444-4444-4444-8444-444444444444'
+    ])
+    expect(repos.documents.list({ sort: 'recent' }).documents.map((d) => d.id)).toEqual([
+      '44444444-4444-4444-8444-444444444444',
+      '22222222-2222-4222-8222-222222222222',
+      '33333333-3333-4333-8333-333333333333'
+    ])
 
     expect(repos.documents.list({ direction: 'income' }).total).toBe(1)
     expect(repos.documents.list({ year: 2026, quarter: 1 }).total).toBe(2)
+    expect(
+      repos.documents.list({
+        year: 2026,
+        quarter: 1,
+        includeUnassigned: true
+      }).documents.map((document) => document.id)
+    ).toEqual([
+      '33333333-3333-4333-8333-333333333333',
+      '22222222-2222-4222-8222-222222222222',
+      '44444444-4444-4444-8444-444444444444'
+    ])
     expect(repos.documents.list({ search: 'Kunde' }).total).toBe(1)
     expect(repos.documents.list({ search: 'INV-77' }).total).toBe(1)
     expect(repos.documents.list({ search: '%' }).total).toBe(0) // escaped, not a wildcard
@@ -293,6 +352,35 @@ describe('ExchangeRateRepository', () => {
     expect(repos.exchangeRates.find('usd', '2026-01-07')?.rateToEur).toBe(0.91)
     expect(repos.exchangeRates.find('USD', '2026-01-20')).toBeNull() // too old
     expect(repos.exchangeRates.find('GBP', '2026-01-08')).toBeNull()
+  })
+
+  it('reuses and prefers an official BMF monthly rate throughout its month', () => {
+    repos.exchangeRates.save({
+      currency: 'USD',
+      date: '2026-01-01',
+      rateToEur: 0.9,
+      source: `${BMF_MONTHLY_SOURCE} 2026-01`
+    })
+    repos.exchangeRates.save({
+      currency: 'USD',
+      date: '2026-01-19',
+      rateToEur: 0.92,
+      source: 'ECB'
+    })
+
+    expect(repos.exchangeRates.find('USD', '2026-01-31')).toEqual({
+      currency: 'USD',
+      date: '2026-01-01',
+      rateToEur: 0.9,
+      source: `${BMF_MONTHLY_SOURCE} 2026-01`
+    })
+    expect(repos.exchangeRates.findEcbDaily('USD', '2026-01-20')).toEqual({
+      currency: 'USD',
+      date: '2026-01-19',
+      rateToEur: 0.92,
+      source: 'ECB'
+    })
+    expect(repos.exchangeRates.find('USD', '2026-02-01')).toBeNull()
   })
 })
 

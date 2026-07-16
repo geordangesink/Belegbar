@@ -14,11 +14,11 @@ import { parseInvoiceText, PARSER_VERSION } from '@core/parsing/parse-invoice'
 import { classifyVat, VAT_ENGINE_VERSION } from '@core/vat/classify'
 import { generateStoredFilename, withCollisionSuffix } from '@core/files/filename'
 import { periodOfIsoDate } from '@core/period/period'
+import { confidenceKeysForField } from '@core/review/fields'
 import {
   convertToEur,
   extractInlineRate,
   isIsoCurrency,
-  type ExchangeRateProvider,
   type ExchangeRateResult
 } from '@core/currency/convert'
 import type {
@@ -36,6 +36,10 @@ import type { ImportStartResult } from '@shared/api'
 import type { Repositories } from '../db/repository'
 import type { ExtractionService, DocumentTextResult } from '../extraction/service'
 import type { Logger } from '../log'
+import {
+  resolveOfficialExchangeRate,
+  type OfficialExchangeRateProviders
+} from '../rates/resolve'
 import { dataPaths, documentRelativeDir, isInside, resolveInside } from '../storage/paths'
 import {
   atomicMove,
@@ -77,7 +81,7 @@ export interface PipelineDeps {
   dataDir: string
   repos: Repositories
   extraction: ExtractionService
-  ratesProvider: ExchangeRateProvider
+  ratesProviders: OfficialExchangeRateProviders
   emit: (progress: ImportFileProgress) => void
   log: Logger
   /** opt-in local LLM double-check; absent or not ready = zero behavior change */
@@ -339,7 +343,9 @@ export class ImportPipeline {
       }
     }
     // user-corrected fields display as manual, not as parser output
-    for (const field of corrected) delete fieldConfidence[field]
+    for (const field of corrected) {
+      for (const key of confidenceKeysForField(field)) delete fieldConfidence[key]
+    }
     next.fieldConfidence = fieldConfidence
     const { extractedText: _omit, ...rawParsed } = parsed
     next.extractionRawJson = rawParsed
@@ -355,7 +361,13 @@ export class ImportPipeline {
         k !== 'fieldConfidence' &&
         JSON.stringify(next[k]) !== JSON.stringify(doc[k])
     )
-    this.deps.repos.documents.update(next, classification)
+    const saved = this.deps.repos.documents.updateIfUnchanged(
+      next,
+      doc.updatedAt,
+      classification
+    )
+    if (!saved) return false
+    if (settings.llmCheckerEnabled && this.deps.llm?.isReady()) this.deps.llm.enqueue(id)
     this.deps.repos.audit.append({
       documentId: id,
       eventType: 're_extraction',
@@ -765,6 +777,12 @@ export class ImportPipeline {
       const thumbPath = path.join(paths.thumbnails, `${documentId}.png`)
       void this.deps.extraction
         .thumbnail(finalPlacement.absolutePath, thumbPath)
+        .then(async () => {
+          const current = this.deps.repos.documents.getById(documentId)
+          if (!current || current.deletedAt !== null) {
+            await fsp.rm(thumbPath, { force: true })
+          }
+        })
         .catch(() => this.deps.log.warn('thumbnail_failed', { documentId }))
 
       // 14 — final status
@@ -888,15 +906,15 @@ export class ImportPipeline {
     if (!iso) issues.push(issue('non_iso_currency', 'warning', 'originalCurrency'))
 
     if (!rate && iso) {
-      const cached = this.deps.repos.exchangeRates.find(currency, rateDate)
-      if (cached) rate = { ...cached }
-    }
-    if (!rate && iso) {
-      rate = await this.deps.ratesProvider.getRate({ currency, date: rateDate })
+      rate = await resolveOfficialExchangeRate(
+        { currency, date: rateDate },
+        this.deps.repos.exchangeRates,
+        this.deps.ratesProviders
+      )
     }
 
     if (!rate) {
-      issues.push(issue('missing_exchange_rate', 'warning', 'exchangeRateToEur'))
+      issues.push(issue('missing_exchange_rate', 'critical', 'exchangeRateToEur'))
       return { currency, rate: null, netEur: null, vatEur: null, grossEur: null, issues }
     }
 

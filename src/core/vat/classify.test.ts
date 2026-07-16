@@ -3,6 +3,7 @@ import type { VatTreatmentCode } from '../../shared/domain'
 import {
   classifyVat,
   isEuCountry,
+  isVatTreatmentApplicable,
   listVatTreatments,
   type VatClassificationInput
 } from './classify'
@@ -524,7 +525,7 @@ describe('expense: no input VAT / unclear', () => {
     expect(result.requiresUserConfirmation).toBe(true)
   })
 
-  it('German supplier with explicit zero VAT → DE_EXPENSE_NO_INPUT_VAT medium', () => {
+  it('German supplier with explicit zero VAT needs no input-VAT confirmation', () => {
     const result = classifyVat(
       input({
         direction: 'expense',
@@ -535,7 +536,43 @@ describe('expense: no input VAT / unclear', () => {
       })
     )
     expect(result.code).toBe('DE_EXPENSE_NO_INPUT_VAT')
+    expect(result.confidence).toBe('high')
+    expect(result.requiresUserConfirmation).toBe(false)
+    expect(result.unresolvedQuestions).toEqual([])
+    expect(result.legalBasis).toContain('§ 15')
+  })
+
+  it('uses a German VAT ID as domestic evidence when the country is missing', () => {
+    const result = classifyVat(
+      input({
+        direction: 'expense',
+        issuerCountryCode: null,
+        issuerVatId: 'DE123456789',
+        netAmount: 100,
+        vatAmount: 0,
+        grossAmount: 100
+      })
+    )
+    expect(result.code).toBe('DE_EXPENSE_NO_INPUT_VAT')
+    expect(result.confidence).toBe('high')
+    expect(result.requiresUserConfirmation).toBe(false)
+  })
+
+  it('keeps a domestic zero-VAT document with reverse-charge wording cautious', () => {
+    const result = classifyVat(
+      input({
+        direction: 'expense',
+        issuerCountryCode: 'DE',
+        reverseChargeWording: true,
+        netAmount: 100,
+        vatAmount: 0,
+        grossAmount: 100
+      })
+    )
+    expect(result.code).toBe('UNKNOWN_REVIEW')
+    expect(result.confidence).toBe('low')
     expect(result.requiresUserConfirmation).toBe(true)
+    expect(result.unresolvedQuestions.join(' ')).toContain('§ 13b')
   })
 
   it('goods from abroad → UNKNOWN_REVIEW', () => {
@@ -566,7 +603,7 @@ describe('expense: no input VAT / unclear', () => {
 })
 
 describe('listVatTreatments', () => {
-  it('returns a neutral catalog of all 10 codes', () => {
+  it('returns all catalog entries without treating UNKNOWN as resolved', () => {
     const treatments = listVatTreatments()
     expect(treatments).toHaveLength(10)
     const codes = treatments.map((t) => t.code)
@@ -586,8 +623,20 @@ describe('listVatTreatments', () => {
     for (const treatment of treatments) {
       expect(treatment.labelDe.length).toBeGreaterThan(0)
       expect(treatment.labelEn.length).toBeGreaterThan(0)
-      expect(treatment.requiresUserConfirmation).toBe(false)
       expect(treatment.unresolvedQuestions).toEqual([])
     }
+    expect(treatments.find(({ code }) => code === 'UNKNOWN_REVIEW')).toMatchObject({
+      confidence: 'low',
+      requiresUserConfirmation: true
+    })
+  })
+
+  it('allows only resolved treatments that match the document direction', () => {
+    expect(isVatTreatmentApplicable('income', 'DE_DOMESTIC_19')).toBe(true)
+    expect(isVatTreatmentApplicable('income', 'DE_EXPENSE_INPUT_VAT')).toBe(false)
+    expect(isVatTreatmentApplicable('expense', 'DE_EXPENSE_INPUT_VAT')).toBe(true)
+    expect(isVatTreatmentApplicable('expense', 'EU_B2B_REVERSE_CHARGE_REVENUE')).toBe(false)
+    expect(isVatTreatmentApplicable('income', 'UNKNOWN_REVIEW')).toBe(false)
+    expect(isVatTreatmentApplicable('expense', 'UNKNOWN_REVIEW')).toBe(false)
   })
 })

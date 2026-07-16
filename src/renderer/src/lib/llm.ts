@@ -7,11 +7,14 @@
 import type { LlmFieldVerdict } from '@shared/domain'
 
 /** checked field name → i18n label key under review.* */
-const LLM_FIELD_LABEL_KEYS: Record<string, string> = {
+const REVIEW_FIELD_LABEL_KEYS: Record<string, string> = {
   invoiceNumber: 'review.invoiceNumber',
   invoiceDate: 'review.invoiceDate',
+  serviceDateFrom: 'review.servicePeriodFrom',
+  serviceDateTo: 'review.servicePeriodTo',
   dueDate: 'review.dueDate',
   currency: 'review.currency',
+  originalCurrency: 'review.currency',
   netAmount: 'review.netAmount',
   netAmountOriginal: 'review.netAmount',
   vatAmount: 'review.vatAmount',
@@ -19,8 +22,17 @@ const LLM_FIELD_LABEL_KEYS: Record<string, string> = {
   grossAmount: 'review.grossAmount',
   grossAmountOriginal: 'review.grossAmount',
   issuerName: 'review.issuerName',
+  issuerCountryCode: 'review.issuerCountry',
+  issuerVatId: 'review.issuerVatId',
   recipientName: 'review.recipientName',
-  description: 'review.description'
+  recipientCountryCode: 'review.recipientCountry',
+  recipientVatId: 'review.recipientVatId',
+  recipientIsBusiness: 'review.recipientIsBusiness',
+  description: 'review.description',
+  expenseCategory: 'review.category',
+  exchangeRateToEur: 'review.exchangeRate',
+  paymentDate: 'review.paymentDate',
+  vatTreatmentCode: 'review.vatTreatment'
 }
 
 /**
@@ -28,13 +40,25 @@ const LLM_FIELD_LABEL_KEYS: Record<string, string> = {
  * exists (caller falls back to the raw field name).
  */
 export function llmFieldLabelKey(field: string): string | null {
-  return LLM_FIELD_LABEL_KEYS[field] ?? null
+  return reviewFieldLabelKey(field)
+}
+
+export function reviewFieldLabelKey(field: string): string | null {
+  return REVIEW_FIELD_LABEL_KEYS[field] ?? null
 }
 
 function isVerdict(value: unknown): value is LlmFieldVerdict {
   if (value === null || typeof value !== 'object') return false
   const v = value as Record<string, unknown>
-  return typeof v.agrees === 'boolean' && (v.suggested === null || typeof v.suggested === 'string')
+  const confidence = v.confidence
+  return (
+    typeof v.agrees === 'boolean' &&
+    (v.suggested === null || typeof v.suggested === 'string') &&
+    (confidence === undefined ||
+      confidence === 'low' ||
+      confidence === 'medium' ||
+      confidence === 'high')
+  )
 }
 
 export interface StoredLlmCheck {

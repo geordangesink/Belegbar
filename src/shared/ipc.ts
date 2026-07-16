@@ -24,7 +24,10 @@ export const IPC = {
   setVatTreatment: 'belegbar:set-vat-treatment',
   reExtractDocuments: 'belegbar:re-extract-documents',
   deleteDocument: 'belegbar:delete-document',
+  deleteDocuments: 'belegbar:delete-documents',
+  emptyTrash: 'belegbar:empty-trash',
   restoreDocument: 'belegbar:restore-document',
+  saveDocumentCopies: 'belegbar:save-document-copies',
   getDocumentPdf: 'belegbar:get-document-pdf',
   revealDocument: 'belegbar:reveal-document',
   openDocumentExternal: 'belegbar:open-document-external',
@@ -82,6 +85,8 @@ export const listDocumentsSchema = z.object({
   reviewStatus: z.enum(['processing', 'needs_review', 'confirmed', 'failed']).optional(),
   vatTreatmentCode: z.string().max(64).optional(),
   includeDeleted: z.boolean().optional(),
+  includeUnassigned: z.boolean().optional(),
+  sort: z.enum(['newest', 'oldest', 'recent']).optional(),
   limit: z.number().int().min(1).max(500).default(100),
   offset: z.number().int().min(0).default(0)
 })
@@ -196,4 +201,13 @@ export const deleteDocumentSchema = z.object({
   id: z.string().uuid(),
   /** trash first; hard delete only from trash */
   mode: z.enum(['trash', 'hard']).default('trash')
+})
+
+export const deleteDocumentsSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(500),
+  mode: z.enum(['trash', 'hard']).default('trash')
+})
+
+export const saveDocumentCopiesSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(500)
 })

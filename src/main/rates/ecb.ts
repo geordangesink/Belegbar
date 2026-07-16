@@ -67,11 +67,6 @@ function isoDaysBefore(iso: string, days: number): string {
   return d.toISOString().slice(0, 10)
 }
 
-/** Round a rate to 6 decimals (rates are not money; keep precision). */
-function roundRate(value: number): number {
-  return Math.round(value * 1e6) / 1e6
-}
-
 export interface EcbProviderOptions {
   /** persist every fetched rate for offline reuse */
   onRateFetched?: (rate: ExchangeRateResult) => void
@@ -114,7 +109,7 @@ export class EcbExchangeRateProvider implements ExchangeRateProvider {
       const result: ExchangeRateResult = {
         currency,
         date: latest.date,
-        rateToEur: roundRate(1 / latest.obsValue),
+        rateToEur: 1 / latest.obsValue,
         source: ECB_SOURCE
       }
       this.options.onRateFetched?.(result)

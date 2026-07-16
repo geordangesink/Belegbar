@@ -4,10 +4,9 @@ import type { AmountBreakdown, VatSummary } from '@shared/domain'
 import { api, errorToKey } from '../../lib/api'
 import { useDataVersion } from '../../lib/bus'
 import { activeLanguage } from '../../i18n'
-import { currentQuarter, formatEur, shortId } from '../../lib/format'
+import { formatEur, shortId } from '../../lib/format'
 import { usePeriod } from '../../context/PeriodContext'
 import { useRouter } from '../../context/RouterContext'
-import { useSettings } from '../../context/SettingsContext'
 import { useToast } from '../../context/ToastContext'
 
 function BreakdownLine({
@@ -82,25 +81,18 @@ function BreakdownLine({
 export function VatTab(): ReactNode {
   const { t } = useTranslation()
   const lang = activeLanguage()
-  const { year, quarter, setYear, setQuarter } = usePeriod()
-  const { settings } = useSettings()
+  const { year, quarter } = usePeriod()
   const { push, go } = useRouter()
   const toast = useToast()
   const dataVersion = useDataVersion()
 
-  // Monthly filers get a month-precise "current period" shortcut.
-  const [month, setMonth] = useState<number | null>(null)
   const [summary, setSummary] = useState<VatSummary | null>(null)
-
-  useEffect(() => {
-    setMonth(null)
-  }, [year, quarter])
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
       try {
-        const s = await api().getVatSummary({ year, quarter, month })
+        const s = await api().getVatSummary({ year, quarter, month: null })
         if (!cancelled) setSummary(s)
       } catch (err) {
         if (!cancelled) toast.error(t(errorToKey(err)))
@@ -110,25 +102,18 @@ export function VatTab(): ReactNode {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [year, quarter, month, dataVersion])
-
-  const goCurrentPeriod = (): void => {
-    const now = new Date()
-    setYear(now.getFullYear())
-    if (settings.vatFilingFrequency === 'yearly') {
-      setQuarter(null)
-    } else {
-      setQuarter(currentQuarter())
-      if (settings.vatFilingFrequency === 'monthly') {
-        // set after the reset effect above
-        window.setTimeout(() => setMonth(now.getMonth() + 1), 0)
-      }
-    }
-  }
+  }, [year, quarter, dataVersion])
 
   const openDoc = (id: string): void => push({ name: 'review', id })
 
-  if (!summary) return <div className="empty-state">{t('app.loading')}</div>
+  if (!summary) {
+    return (
+      <div className="card loading-state" aria-label={t('app.loading')}>
+        <span className="loading-orb" />
+        <span>{t('app.loading')}</span>
+      </div>
+    )
+  }
 
   // revenueNeedingReview/expensesNeedingReview are EUR sums — the link line
   // needs the number of documents, so count unique provisional ids instead
@@ -145,34 +130,39 @@ export function VatTab(): ReactNode {
   const refund = summary.estimatedPayable < 0
 
   const periodLabel =
-    month !== null
-      ? `${t(`period.month_${month}`)} ${year}`
-      : quarter !== null
-        ? `${t('period.q', { n: quarter })} ${year}`
-        : `${year}`
+    quarter !== null ? `${t('period.q', { n: quarter })} ${year}` : `${year}`
 
-  const revenueRow = (label: string, breakdown: AmountBreakdown): ReactNode => (
-    <tr>
-      <td>{label}</td>
-      <td className="amount">{formatEur(breakdown.confirmed + breakdown.provisional, lang)}</td>
-    </tr>
-  )
+  const revenueAmount = (breakdown: AmountBreakdown): number =>
+    breakdown.confirmed + breakdown.provisional
+
+  const revenueRow = (label: string, breakdown: AmountBreakdown): ReactNode => {
+    const amount = revenueAmount(breakdown)
+    if (amount === 0) return null
+    return (
+      <tr>
+        <td>{label}</td>
+        <td className="amount">{formatEur(amount, lang)}</td>
+      </tr>
+    )
+  }
+
+  const hasRevenueDetails =
+    [
+      summary.domesticTaxableRevenue,
+      summary.euReverseChargeRevenue,
+      summary.thirdCountryNonTaxableRevenue,
+      summary.taxExemptRevenue
+    ].some((breakdown) => revenueAmount(breakdown) !== 0) ||
+    summary.revenueNeedingReview !== 0
 
   return (
     <div>
-      <div className="row mb-16">
-        <span className="muted small">{periodLabel}</span>
-        <button type="button" className="btn btn-sm" onClick={goCurrentPeriod}>
-          {t('taxes.currentPeriod')}
-        </button>
-        <span className="chip chip-neutral">{t('taxes.estimateBadge')}</span>
-      </div>
-
-      <div className="card" style={{ padding: 24 }} data-tour="taxes-vat">
+      <div className={`card tax-hero ${refund ? 'refund' : 'payable'}`} data-tour="taxes-vat">
         <div className="section-title">
           {refund ? t('taxes.vatResultRefund') : t('taxes.vatResultPayable')}
         </div>
         <div className="hero-number">{formatEur(Math.abs(summary.estimatedPayable), lang)}</div>
+        <div className="tax-hero-caption">{periodLabel}</div>
         {provisionalCount > 0 ? (
           <button
             type="button"
@@ -187,51 +177,57 @@ export function VatTab(): ReactNode {
         ) : null}
       </div>
 
-      <section className="mt-24">
-        <h2 className="section-title">{t('taxes.calcTitle')}</h2>
-        <div className="card" style={{ padding: '8px 20px' }}>
-          <table className="calc-table">
-            <tbody>
-              <BreakdownLine label={t('taxes.lineOutputVat')} sign="" breakdown={summary.outputVat} onOpenDoc={openDoc} />
-              <BreakdownLine label={t('taxes.lineInputVat')} sign="−" breakdown={summary.inputVat} onOpenDoc={openDoc} />
-              <BreakdownLine label={t('taxes.lineRcVat')} sign="+" breakdown={summary.reverseChargeVat} onOpenDoc={openDoc} />
-              <BreakdownLine
-                label={t('taxes.lineRcInputVat')}
-                sign="−"
-                breakdown={summary.reverseChargeInputVat}
-                onOpenDoc={openDoc}
-              />
-              <tr className="total">
-                <td>= {t('taxes.lineResult')}</td>
-                <td className="amount">{formatEur(summary.estimatedPayable, lang)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <div className="tax-detail-grid">
+        <section>
+          <h2 className="section-title">{t('taxes.calcTitle')}</h2>
+          <div className="card calc-card">
+            <table className="calc-table">
+              <tbody>
+                <BreakdownLine label={t('taxes.lineOutputVat')} sign="" breakdown={summary.outputVat} onOpenDoc={openDoc} />
+                <BreakdownLine label={t('taxes.lineInputVat')} sign="−" breakdown={summary.inputVat} onOpenDoc={openDoc} />
+                <BreakdownLine label={t('taxes.lineRcVat')} sign="+" breakdown={summary.reverseChargeVat} onOpenDoc={openDoc} />
+                <BreakdownLine
+                  label={t('taxes.lineRcInputVat')}
+                  sign="−"
+                  breakdown={summary.reverseChargeInputVat}
+                  onOpenDoc={openDoc}
+                />
+                <tr className="total">
+                  <td>= {t('taxes.lineResult')}</td>
+                  <td className="amount">{formatEur(summary.estimatedPayable, lang)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-      <section className="mt-24">
-        <h2 className="section-title">{t('taxes.revenueByTypeTitle')}</h2>
-        <div className="card" style={{ padding: '8px 20px' }}>
-          <table className="calc-table">
-            <tbody>
-              {revenueRow(t('taxes.revDomestic'), summary.domesticTaxableRevenue)}
-              {revenueRow(t('taxes.revEuB2b'), summary.euReverseChargeRevenue)}
-              {revenueRow(t('taxes.revThirdCountry'), summary.thirdCountryNonTaxableRevenue)}
-              {revenueRow(t('taxes.revExempt'), summary.taxExemptRevenue)}
-              <tr>
-                <td>
-                  <span className="status-glyph warn" aria-hidden="true">
-                    ⚠
-                  </span>{' '}
-                  {t('taxes.revNeedsReview')}
-                </td>
-                <td className="amount">{formatEur(summary.revenueNeedingReview, lang)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+        {hasRevenueDetails ? (
+          <section>
+            <h2 className="section-title">{t('taxes.revenueByTypeTitle')}</h2>
+            <div className="card calc-card">
+              <table className="calc-table">
+                <tbody>
+                  {revenueRow(t('taxes.revDomestic'), summary.domesticTaxableRevenue)}
+                  {revenueRow(t('taxes.revEuB2b'), summary.euReverseChargeRevenue)}
+                  {revenueRow(t('taxes.revThirdCountry'), summary.thirdCountryNonTaxableRevenue)}
+                  {revenueRow(t('taxes.revExempt'), summary.taxExemptRevenue)}
+                  {summary.revenueNeedingReview !== 0 ? (
+                    <tr>
+                      <td>
+                        <span className="status-glyph warn" aria-hidden="true">
+                          ⚠
+                        </span>{' '}
+                        {t('taxes.revNeedsReview')}
+                      </td>
+                      <td className="amount">{formatEur(summary.revenueNeedingReview, lang)}</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
+      </div>
     </div>
   )
 }

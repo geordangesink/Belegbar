@@ -581,7 +581,7 @@ describe('LlmChecker', () => {
     expect(notify.mock.calls.length).toBeGreaterThanOrEqual(2) // enqueue + finish
   })
 
-  it('does not write the document when the verdict changes nothing (audit only)', async () => {
+  it('persists successful evidence even when confidence and issues do not change', async () => {
     fake.documents.insert(fullDocument({ id: 'doc-same' }))
     vi.mocked(parseModelOutput).mockReturnValue({
       invoiceNumber: { agrees: true, suggested: null }
@@ -596,8 +596,11 @@ describe('LlmChecker', () => {
     await waitFor(() => checker.getStatus().queueLength === 0)
 
     const after = fake.documents.getById('doc-same')!
-    expect(after.updatedAt).toBe('2026-02-10T10:00:00.000Z') // untouched
-    expect((after.extractionRawJson as Record<string, unknown>)['llmCheck']).toBeUndefined()
+    expect(after.updatedAt).not.toBe('2026-02-10T10:00:00.000Z')
+    const stored = (after.extractionRawJson as Record<string, unknown>)[
+      'llmCheck'
+    ] as LlmCheckResult
+    expect(stored.fields.invoiceNumber).toEqual({ agrees: true, suggested: null })
     const events = fake.audit.listByDocument('doc-same')
     expect(events.some((e) => e.eventType === 'llm_check')).toBe(true)
   })

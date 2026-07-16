@@ -8,6 +8,7 @@ import { useSettings } from '../context/SettingsContext'
 import { useToast } from '../context/ToastContext'
 import { usePeriod, yearOptions } from '../context/PeriodContext'
 import { ConfirmDialog } from '../components/Dialog'
+import { ImportModeControl } from '../components/ImportModeControl'
 import { MoneyInput } from '../components/MoneyInput'
 import { useTour } from '../tour/TourProvider'
 import type { TourDepth } from '../tour/steps'
@@ -135,9 +136,9 @@ function LlmSection(): ReactNode {
   }, [])
 
   const toggleEnabled = (v: boolean): void => {
-    void update({ llmCheckerEnabled: v })
-      .then(() => toast.success(t('settings.savedToast')))
-      .catch((err: unknown) => toast.error(t(errorToKey(err))))
+    void update({ llmCheckerEnabled: v }).catch((err: unknown) =>
+      toast.error(t(errorToKey(err)))
+    )
   }
 
   const download = async (): Promise<void> => {
@@ -186,17 +187,12 @@ function LlmSection(): ReactNode {
     <section className="settings-group">
       <h2 className="section-title">{t('settings.llmGroup')}</h2>
       <div className="card">
-        <div className="settings-row">
-          <div className="sr-text">
-            <div className="sr-desc">{t('settings.llmIntro')}</div>
-          </div>
-        </div>
         {status === null ? (
           <Row label={t('app.loading')}>
             <span />
           </Row>
         ) : status.state === 'not_downloaded' ? (
-          <Row label={t('settings.llmModelLabel')} desc={t('settings.llmNotDownloadedDesc')}>
+          <Row label={t('settings.llmModelLabel')}>
             <button type="button" className="btn" disabled={busy} onClick={() => void download()}>
               {t('settings.llmDownload')}
             </button>
@@ -222,7 +218,7 @@ function LlmSection(): ReactNode {
           </Row>
         ) : status.state === 'ready' ? (
           <>
-            <Row label={t('settings.llmEnable')} desc={t('settings.llmEnableDesc')}>
+            <Row label={t('settings.llmEnable')}>
               <Toggle
                 checked={settings.llmCheckerEnabled}
                 label={t('settings.llmEnable')}
@@ -291,9 +287,7 @@ export function Settings(): ReactNode {
   const [busy, setBusy] = useState(false)
 
   const patch = (p: UpdateSettingsPayload): void => {
-    void update(p)
-      .then(() => toast.success(t('settings.savedToast')))
-      .catch((err: unknown) => toast.error(t(errorToKey(err))))
+    void update(p).catch((err: unknown) => toast.error(t(errorToKey(err))))
   }
 
   const select = <K extends keyof AppSettings>(
@@ -357,7 +351,10 @@ export function Settings(): ReactNode {
   }
 
   return (
-    <div className="content-inner" style={{ maxWidth: 720 }}>
+    <div className="content-inner settings-page">
+      <header className="page-header compact-page-header">
+        <h1>{t('settings.title')}</h1>
+      </header>
       <section className="settings-group">
         <h2 className="section-title">{t('settings.groupGeneral')}</h2>
         <div className="card">
@@ -375,7 +372,7 @@ export function Settings(): ReactNode {
               { value: 'dark', label: t('settings.themeDark') }
             ])}
           </Row>
-          <Row label={t('settings.defaultYear')} desc={t('settings.defaultYearDesc')}>
+          <Row label={t('settings.defaultYear')}>
             <select
               className="select"
               aria-label={t('settings.defaultYear')}
@@ -389,14 +386,13 @@ export function Settings(): ReactNode {
               ))}
             </select>
           </Row>
-          <Row label={t('settings.moveOriginals')} desc={t('settings.moveOriginalsDesc')}>
-            <Toggle
-              checked={settings.moveOriginalsAfterImport}
-              label={t('settings.moveOriginals')}
-              onChange={(v) => patch({ moveOriginalsAfterImport: v })}
+          <Row label={t('settings.importHandling')} desc={t('settings.importHandlingDesc')}>
+            <ImportModeControl
+              moveOriginals={settings.moveOriginalsAfterImport}
+              onChange={(moveOriginalsAfterImport) => patch({ moveOriginalsAfterImport })}
             />
           </Row>
-          <Row label={t('tour.laterTitle')} desc={t('tour.laterDesc')}>
+          <Row label={t('tour.laterTitle')}>
             <select
               className="select"
               aria-label={t('tour.depthLabel')}
@@ -473,7 +469,7 @@ export function Settings(): ReactNode {
               { value: 'unsure', label: t('vatMethod.unsure') }
             ])}
           </Row>
-          <Row label={t('settings.filingFrequencyLabel')} desc={t('settings.filingFrequencyDesc')}>
+          <Row label={t('settings.filingFrequencyLabel')}>
             {select('vatFilingFrequency', [
               { value: 'monthly', label: t('filingFrequency.monthly') },
               { value: 'quarterly', label: t('filingFrequency.quarterly') },
@@ -606,11 +602,6 @@ export function Settings(): ReactNode {
             <button type="button" className="btn" onClick={() => void api().openDataFolder()}>
               {t('settings.openDataFolder')}
             </button>
-          </Row>
-        </div>
-        <div className="card danger-zone mt-16">
-          <Row label={t('settings.dangerTitle')} desc={t('settings.dangerDeleteAllHint')}>
-            <span />
           </Row>
         </div>
       </section>

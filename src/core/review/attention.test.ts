@@ -8,6 +8,7 @@ import type {
 import {
   attentionForDocument,
   attentionLevel,
+  fieldAttentionForDocument,
   issueAttention,
   type AttentionInput
 } from './attention'
@@ -130,6 +131,80 @@ describe('attentionLevel — rule 1: confirmed shortcut', () => {
       )
     ).toBe('confirmed')
   })
+
+  it("does not let a legacy confirmation hide an unknowable EUR value", () => {
+    expect(
+      attentionLevel(
+        input({
+          reviewStatus: 'confirmed',
+          issues: [issue('missing_exchange_rate', 'warning', 'exchangeRateToEur')]
+        })
+      )
+    ).toBe('critical')
+  })
+})
+
+describe('fieldAttentionForDocument', () => {
+  it('returns only genuinely unresolved fields and canonicalizes aliases', () => {
+    const fields = fieldAttentionForDocument(
+      doc({
+        issues: [issue('conflicting_totals', 'critical', 'grossAmount')],
+        fieldConfidence: {
+          ...doc().fieldConfidence,
+          issuerCountryCode: 0.75,
+          description: 0.6
+        }
+      })
+    )
+    expect(fields).toEqual({
+      grossAmountOriginal: 'critical',
+      description: 'minor'
+    })
+  })
+
+  it('treats supporting readings at 0.65 or above as settled', () => {
+    expect(
+      fieldAttentionForDocument(
+        doc({
+          fieldConfidence: {
+            ...doc().fieldConfidence,
+            issuerCountryCode: 0.75,
+            recipientVatId: 0.7,
+            dueDate: 0.8
+          }
+        })
+      )
+    ).toEqual({})
+  })
+
+  it('names VAT treatment and missing required values', () => {
+    expect(
+      fieldAttentionForDocument(
+        doc({
+          invoiceDate: null,
+          issues: [],
+          extractionRawJson: {
+            vatClassification: {
+              requiresUserConfirmation: true,
+              confidence: 'medium',
+              code: 'DE_EXPENSE_INPUT_VAT'
+            }
+          }
+        })
+      )
+    ).toEqual({ invoiceDate: 'critical', vatTreatmentCode: 'minor' })
+  })
+
+  it('is empty after the user confirms the document', () => {
+    expect(
+      fieldAttentionForDocument(
+        doc({
+          reviewStatus: 'confirmed',
+          issues: [issue('missing_amount', 'critical', 'grossAmount')]
+        })
+      )
+    ).toEqual({})
+  })
 })
 
 describe('attentionLevel — rule 2: failed shortcut', () => {
@@ -159,7 +234,7 @@ describe('attentionLevel — rule 3: critical issues', () => {
         input({
           issues: [
             issue('missing_invoice_number', 'warning', 'invoiceNumber'), // minor tier
-            issue('missing_exchange_rate', 'warning', 'exchangeRateToEur'), // warning tier
+            issue('missing_exchange_rate', 'warning', 'exchangeRateToEur'), // critical tier
             issue('conflicting_totals', 'critical', 'grossAmount') // critical tier
           ]
         })
@@ -194,17 +269,16 @@ describe('attentionLevel — rule 3: critical issues', () => {
 })
 
 describe('attentionLevel — rule 4: warning issues and VAT confirmation', () => {
-  it("maps a tax-relevant warning issue to 'warning'", () => {
+  it("missing exchange rate is always 'critical', even for an older warning issue", () => {
     expect(
       attentionLevel(
         input({ issues: [issue('missing_exchange_rate', 'warning', 'exchangeRateToEur')] })
       )
-    ).toBe('warning')
+    ).toBe('critical')
   })
 
   it('every tax-relevant warning code maps to warning', () => {
     const codes = [
-      'missing_exchange_rate',
       'non_iso_currency',
       'possible_duplicate',
       'refund_detected',
@@ -217,7 +291,7 @@ describe('attentionLevel — rule 4: warning issues and VAT confirmation', () =>
     }
   })
 
-  it("'ambiguous_date_format' alone is only 'minor' (corroborated date)", () => {
+  it("a corroborated ambiguous date is fully resolved", () => {
     // the parser corroborates DD/MM vs MM/DD; a date that stayed >= 0.85
     // is trustworthy, so the leftover issue must not triangle
     expect(
@@ -227,7 +301,7 @@ describe('attentionLevel — rule 4: warning issues and VAT confirmation', () =>
           fieldConfidence: { invoiceDate: 0.9 }
         })
       )
-    ).toBe('minor')
+    ).toBe('ok')
   })
 
   it("'ambiguous_date_format' with an uncertain date still triangles via the confidence scan", () => {
@@ -283,7 +357,7 @@ describe('attentionLevel — rule 4: warning issues and VAT confirmation', () =>
     expect(attentionLevel(input())).toBe('ok')
   })
 
-  it("'non_iso_currency' with a known exchange rate is only 'minor'", () => {
+  it("a non-ISO currency with a known exchange rate is resolved", () => {
     expect(
       attentionLevel(
         input({
@@ -291,7 +365,7 @@ describe('attentionLevel — rule 4: warning issues and VAT confirmation', () =>
           hasExchangeRate: true
         })
       )
-    ).toBe('minor')
+    ).toBe('ok')
   })
 
   it("'non_iso_currency' without an exchange rate stays 'warning'", () => {
@@ -310,8 +384,16 @@ describe('attentionLevel — rule 4: warning issues and VAT confirmation', () =>
     ).toBe('warning')
   })
 
-  it("'missing_exchange_rate' stays 'warning' regardless of hasExchangeRate", () => {
+  it("'missing_exchange_rate' is critical until a usable rate resolves it", () => {
     // without a usable rate there are no EUR amounts — always tax-relevant
+    expect(
+      attentionLevel(
+        input({
+          issues: [issue('missing_exchange_rate', 'warning', 'exchangeRateToEur')],
+          hasExchangeRate: false
+        })
+      )
+    ).toBe('critical')
     expect(
       attentionLevel(
         input({
@@ -319,7 +401,7 @@ describe('attentionLevel — rule 4: warning issues and VAT confirmation', () =>
           hasExchangeRate: true
         })
       )
-    ).toBe('warning')
+    ).toBe('ok')
   })
 
   it('warning beats minor (warning + minor issues together)', () => {
@@ -401,7 +483,7 @@ describe('attentionLevel — rule 5: confidence scan', () => {
     }
   })
 
-  it("non-core field with 0 < c < 0.85 → 'minor'", () => {
+  it("supporting field with 0 < c < 0.65 → 'minor'", () => {
     for (const field of ['description', 'dueDate', 'issuerName', 'invoiceNumber', 'exchangeRateToEur']) {
       expect(attentionLevel(input({ fieldConfidence: { [field]: 0.5 } })), field).toBe('minor')
     }
@@ -418,9 +500,11 @@ describe('attentionLevel — rule 5: confidence scan', () => {
     expect(attentionLevel(input({ fieldConfidence: { description: 0.85 } }))).toBe('ok')
   })
 
-  it('confidence just below 0.85 escalates', () => {
+  it('uses stricter confidence only for tax-relevant core fields', () => {
     expect(attentionLevel(input({ fieldConfidence: { invoiceDate: 0.8499 } }))).toBe('warning')
-    expect(attentionLevel(input({ fieldConfidence: { description: 0.8499 } }))).toBe('minor')
+    expect(attentionLevel(input({ fieldConfidence: { description: 0.8499 } }))).toBe('ok')
+    expect(attentionLevel(input({ fieldConfidence: { description: 0.65 } }))).toBe('ok')
+    expect(attentionLevel(input({ fieldConfidence: { description: 0.6499 } }))).toBe('minor')
   })
 
   it('confidence exactly 0 means "not extracted" and never escalates', () => {
@@ -445,7 +529,7 @@ describe('attentionLevel — rule 5: confidence scan', () => {
     ).toBe('minor')
   })
 
-  it("derived net/VAT pinned by a consistent triple with confident gross → 'minor'", () => {
+  it("derived net/VAT pinned by a consistent triple with confident gross → 'ok'", () => {
     // Amazon-style: gross printed (0.95), net+VAT derived from the printed
     // rate (0.7) and net + VAT = gross → arithmetically pinned, ring only
     expect(
@@ -455,10 +539,10 @@ describe('attentionLevel — rule 5: confidence scan', () => {
           fieldConfidence: { netAmount: 0.7, vatAmount: 0.7, grossAmount: 0.95 }
         })
       )
-    ).toBe('minor')
+    ).toBe('ok')
   })
 
-  it("derived gross pinned by confident printed net + VAT → 'minor'", () => {
+  it("derived gross pinned by confident printed net + VAT → 'ok'", () => {
     expect(
       attentionLevel(
         input({
@@ -466,7 +550,7 @@ describe('attentionLevel — rule 5: confidence scan', () => {
           fieldConfidence: { netAmount: 0.9, vatAmount: 0.9, grossAmount: 0.7 }
         })
       )
-    ).toBe('minor')
+    ).toBe('ok')
   })
 
   it('without amountsConsistent the same confidences still triangle', () => {
@@ -531,7 +615,7 @@ describe('attentionLevel — rule 5: confidence scan', () => {
           fieldConfidence: { netAmountOriginal: 0.7, vatAmountOriginal: 0.7, grossAmountOriginal: 0.9 }
         })
       )
-    ).toBe('minor')
+    ).toBe('ok')
   })
 
   it("info-severity issues are ignored entirely → 'ok'", () => {
@@ -584,7 +668,7 @@ describe('issueAttention (reused table, sanity)', () => {
   })
 
   it('info severity maps to null', () => {
-    expect(issueAttention(issue('missing_exchange_rate', 'info'))).toBeNull()
+    expect(issueAttention(issue('ocr_used', 'info'))).toBeNull()
   })
 
   it('non-tax-relevant warning codes map to minor', () => {
@@ -600,13 +684,13 @@ describe('issueAttention (reused table, sanity)', () => {
     expect(issueAttention(issue('non_iso_currency', 'warning'), {})).toBe('warning')
   })
 
-  it('context with a known rate demotes only non_iso_currency', () => {
-    expect(issueAttention(issue('non_iso_currency', 'warning'), { hasExchangeRate: true })).toBe(
-      'minor'
-    )
+  it('context with a known rate resolves stale currency issues', () => {
+    expect(
+      issueAttention(issue('non_iso_currency', 'warning'), { hasExchangeRate: true })
+    ).toBeNull()
     expect(
       issueAttention(issue('missing_exchange_rate', 'warning'), { hasExchangeRate: true })
-    ).toBe('warning')
+    ).toBeNull()
     expect(
       issueAttention(issue('possible_duplicate', 'warning'), { hasExchangeRate: true })
     ).toBe('warning')
@@ -703,7 +787,7 @@ describe('attentionForDocument', () => {
       attentionForDocument(
         doc({ originalCurrency: 'USDT', exchangeRateToEur: 0.92, issues: [nonIso] })
       )
-    ).toBe('minor')
+    ).toBe('ok')
     expect(
       attentionForDocument(
         doc({
@@ -715,17 +799,17 @@ describe('attentionForDocument', () => {
           issues: [nonIso]
         })
       )
-    ).toBe('warning')
+    ).toBe('critical')
   })
 
   it('ambiguous_date_format follows the date confidence, not the issue table', () => {
     const ambiguous = issue('ambiguous_date_format', 'warning', 'invoiceDate')
-    // corroborated (parser left confidence >= 0.85) → ring
+    // corroborated (parser left confidence >= 0.85) → resolved
     expect(
       attentionForDocument(
         doc({ issues: [ambiguous], fieldConfidence: { ...doc().fieldConfidence, invoiceDate: 0.85 } })
       )
-    ).toBe('minor')
+    ).toBe('ok')
     // uncorroborated (parser capped at 0.7) → triangle via the core-field scan
     expect(
       attentionForDocument(
@@ -753,12 +837,12 @@ describe('attentionForDocument', () => {
       )
     ).toBe('critical')
     // the default doc's amounts are consistent (100 + 19 = 119) and its gross
-    // is confident, so an uncertain VAT amount is pinned → ring, not alarm
+    // A genuinely weak amount remains uncertain even when the values add up.
     expect(
       attentionForDocument(
         doc({ fieldConfidence: { ...doc().fieldConfidence, vatAmountOriginal: 0.5 } })
       )
-    ).toBe('minor')
+    ).toBe('warning')
     // amounts that do NOT add up leave the uncertain VAT amount alarming
     expect(
       attentionForDocument(
@@ -809,7 +893,7 @@ describe('distribution — real corpus mix maps to the expected tiers', () => {
         grossAmountEur: null,
         issues: [issue('missing_exchange_rate', 'warning', 'exchangeRateToEur')]
       }),
-      expected: 'warning'
+      expected: 'critical'
     },
     {
       name: 'OSS-registered Stripe receipt (systematic input-VAT question)',
@@ -831,7 +915,7 @@ describe('distribution — real corpus mix maps to the expected tiers', () => {
         exchangeRateToEur: 0.92,
         issues: [issue('non_iso_currency', 'warning', 'originalCurrency')]
       }),
-      expected: 'minor'
+      expected: 'ok'
     },
     {
       name: 'invoice whose net + VAT do not add up to gross',
@@ -846,17 +930,18 @@ describe('distribution — real corpus mix maps to the expected tiers', () => {
     expect(attentionForDocument(document)).toBe(expected)
   })
 
-  it('the same corpus confirmed by the user is green-check everywhere', () => {
-    for (const { document } of corpus) {
-      expect(
-        attentionForDocument(
-          doc({
-            ...document,
-            reviewStatus: 'confirmed',
-            userConfirmedAt: '2026-02-01T10:00:00.000Z'
-          })
-        )
-      ).toBe('confirmed')
+  it('confirmation settles reviewable findings but never a missing EUR conversion', () => {
+    for (const { name, document } of corpus) {
+      const attention = attentionForDocument(
+        doc({
+          ...document,
+          reviewStatus: 'confirmed',
+          userConfirmedAt: '2026-02-01T10:00:00.000Z'
+        })
+      )
+      expect(attention, name).toBe(
+        name === 'USD invoice without an exchange rate' ? 'critical' : 'confirmed'
+      )
     }
   })
 })

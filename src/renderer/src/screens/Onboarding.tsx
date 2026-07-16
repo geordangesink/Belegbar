@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from 'react'
+import { useState, type CSSProperties, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import appIconUrl from '../../../../build/icon.png'
 import {
   GERMAN_FEDERAL_STATES,
   type AppSettings,
@@ -12,6 +13,7 @@ import {
 import { errorToKey } from '../lib/api'
 import { useSettings } from '../context/SettingsContext'
 import { useToast } from '../context/ToastContext'
+import { ImportModeControl } from '../components/ImportModeControl'
 
 interface Draft {
   language: LanguageSetting
@@ -25,6 +27,8 @@ interface Draft {
   churchTax: AppSettings['churchTax']
   moveOriginalsAfterImport: boolean
 }
+
+const ONBOARDING_STEP_IDS = ['welcome', 'business', 'methods', 'filing', 'import'] as const
 
 function OptionCards<T extends string>({
   options,
@@ -43,6 +47,7 @@ function OptionCards<T extends string>({
           type="button"
           className={`option-card${value === opt.value ? ' selected' : ''}`}
           aria-pressed={value === opt.value}
+          data-selected={value === opt.value}
           onClick={() => onChange(opt.value)}
         >
           <span className="oc-title">{opt.title}</span>
@@ -106,8 +111,7 @@ export function Onboarding({ onDone }: { onDone: () => void }): ReactNode {
   const steps: ReactNode[] = [
     // 1 — welcome, language + theme
     <div key="s1" className="stack">
-      <h1 style={{ fontSize: 22 }}>{t('onboarding.step1Title')}</h1>
-      <p className="muted">{t('onboarding.step1Body')}</p>
+      <h1 id="onboarding-step-welcome">{t('onboarding.step1Title')}</h1>
       <div className="field-row mt-16">
         <label htmlFor="ob-lang">{t('settings.language')}</label>
         <select
@@ -137,8 +141,7 @@ export function Onboarding({ onDone }: { onDone: () => void }): ReactNode {
     </div>,
     // 2 — business
     <div key="s2" className="stack">
-      <h1 style={{ fontSize: 22 }}>{t('onboarding.step2Title')}</h1>
-      <p className="muted">{t('onboarding.step2Body')}</p>
+      <h1 id="onboarding-step-business">{t('onboarding.step2Title')}</h1>
       <div className="field-row mt-16">
         <label htmlFor="ob-name">{t('onboarding.nameOptional')}</label>
         <input
@@ -178,8 +181,7 @@ export function Onboarding({ onDone }: { onDone: () => void }): ReactNode {
     </div>,
     // 3 — tax methods
     <div key="s3" className="stack">
-      <h1 style={{ fontSize: 22 }}>{t('onboarding.step3Title')}</h1>
-      <p className="muted">{t('onboarding.step3Body')}</p>
+      <h1 id="onboarding-step-methods">{t('onboarding.step3Title')}</h1>
       <h2 className="section-title mt-16">{t('onboarding.incomeTaxMethodTitle')}</h2>
       <OptionCards
         value={draft.incomeTaxMethod}
@@ -208,8 +210,7 @@ export function Onboarding({ onDone }: { onDone: () => void }): ReactNode {
     </div>,
     // 4 — filing rhythm + church tax
     <div key="s3b" className="stack">
-      <h1 style={{ fontSize: 22 }}>{t('onboarding.step3bTitle')}</h1>
-      <p className="muted">{t('onboarding.step3bBody')}</p>
+      <h1 id="onboarding-step-filing">{t('onboarding.step3bTitle')}</h1>
       <h2 className="section-title mt-16">{t('onboarding.filingTitle')}</h2>
       <OptionCards
         value={draft.vatFilingFrequency}
@@ -233,53 +234,84 @@ export function Onboarding({ onDone }: { onDone: () => void }): ReactNode {
     </div>,
     // 5 — import behavior
     <div key="s4" className="stack">
-      <h1 style={{ fontSize: 22 }}>{t('onboarding.step4Title')}</h1>
-      <p className="muted">{t('onboarding.step4Body')}</p>
-      <div className="settings-row mt-16" style={{ border: '1px solid var(--border)', borderRadius: 8 }}>
+      <h1 id="onboarding-step-import">{t('onboarding.step4Title')}</h1>
+      <div className="settings-row onboarding-setting mt-16">
         <div className="sr-text">
-          <div className="sr-label">{t('onboarding.step4MoveTitle')}</div>
-          <div className="sr-desc">{t('onboarding.step4MoveDesc')}</div>
+          <div className="sr-label">{t('settings.importHandling')}</div>
+          <div className="sr-desc">{t('settings.importHandlingDesc')}</div>
         </div>
-        <button
-          type="button"
-          className="switch"
-          role="switch"
-          aria-checked={draft.moveOriginalsAfterImport}
-          aria-label={t('onboarding.step4MoveTitle')}
-          onClick={() => set('moveOriginalsAfterImport', !draft.moveOriginalsAfterImport)}
+        <ImportModeControl
+          moveOriginals={draft.moveOriginalsAfterImport}
+          onChange={(moveOriginalsAfterImport) =>
+            set('moveOriginalsAfterImport', moveOriginalsAfterImport)
+          }
         />
       </div>
     </div>
   ]
 
   const isLast = step === steps.length - 1
+  const currentStepId = ONBOARDING_STEP_IDS[step] ?? ONBOARDING_STEP_IDS[0]
+  const progress = ((step + 1) / steps.length) * 100
 
   return (
-    <div className="onboarding">
-      <div className="onboarding-card">
-        <div className="onboarding-dots" aria-hidden="true">
-          {steps.map((_, i) => (
-            <span key={i} className={`dot${i === step ? ' active' : ''}`} />
-          ))}
-        </div>
-        {steps[step]}
-        <div className="row mt-32" style={{ justifyContent: 'space-between' }}>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            style={{ visibility: step === 0 ? 'hidden' : undefined }}
-            onClick={() => setStep((s) => Math.max(0, s - 1))}
+    <div className="onboarding" data-testid="onboarding">
+      <div className="onboarding-card" data-step={currentStepId} data-step-index={step}>
+        <header className="onboarding-brand">
+          <img className="onboarding-brand-mark" src={appIconUrl} alt="" draggable={false} />
+          <span className="onboarding-brand-name">{t('app.name')}</span>
+        </header>
+        <div
+          className="onboarding-progress"
+          data-progress={step + 1}
+          style={{ '--onboarding-progress': `${progress}%` } as CSSProperties}
+        >
+          <div className="onboarding-progress-meta" aria-hidden="true">
+            <span className="onboarding-progress-current num">
+              {String(step + 1).padStart(2, '0')}
+            </span>
+            <span className="onboarding-progress-separator">/</span>
+            <span className="onboarding-progress-total num">
+              {String(steps.length).padStart(2, '0')}
+            </span>
+          </div>
+          <div
+            className="onboarding-progress-track"
+            role="progressbar"
+            aria-labelledby={`onboarding-step-${currentStepId}`}
+            aria-valuemin={1}
+            aria-valuemax={steps.length}
+            aria-valuenow={step + 1}
           >
-            {t('common.back')}
-          </button>
+            <span className="onboarding-progress-fill" />
+          </div>
+        </div>
+        <section
+          key={currentStepId}
+          className="onboarding-step-content"
+          data-step={currentStepId}
+          aria-labelledby={`onboarding-step-${currentStepId}`}
+        >
+          {steps[step]}
+        </section>
+        <footer className="onboarding-actions row mt-32" data-last-step={isLast}>
+          {step > 0 ? (
+            <button
+              type="button"
+              className="btn btn-ghost onboarding-back"
+              onClick={() => setStep((s) => Math.max(0, s - 1))}
+            >
+              {t('common.back')}
+            </button>
+          ) : null}
           <button
             type="button"
-            className="btn btn-primary"
+            className="btn btn-primary onboarding-next"
             onClick={() => (isLast ? void finish() : setStep((s) => s + 1))}
           >
             {isLast ? t('onboarding.finish') : t('common.next')}
           </button>
-        </div>
+        </footer>
       </div>
     </div>
   )

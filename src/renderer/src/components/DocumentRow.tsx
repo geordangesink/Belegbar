@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TaxDocument } from '@shared/domain'
 import { attentionForDocument } from '@core/review/attention'
@@ -7,9 +7,27 @@ import { formatCurrencyAmount, formatEur, formatIsoDate } from '../lib/format'
 import { AttentionBadge } from './AttentionBadge'
 import { DirectionChip } from './StatusBits'
 import { treatmentLabelKey } from '../lib/vatTreatments'
+import { Icon } from './Icon'
 
 export function counterpartyName(doc: TaxDocument): string | null {
   return doc.direction === 'income' ? doc.recipientName : doc.issuerName
+}
+
+const openButtonStyle: CSSProperties = {
+  position: 'absolute',
+  zIndex: 1,
+  inset: 0,
+  width: '100%',
+  padding: 0,
+  border: 0,
+  borderRadius: 'inherit',
+  background: 'transparent',
+  cursor: 'pointer'
+}
+
+const rowControlStyle: CSSProperties = {
+  position: 'relative',
+  zIndex: 2
 }
 
 export function DocumentRow({
@@ -34,7 +52,7 @@ export function DocumentRow({
   const lang = activeLanguage()
 
   const attention = attentionForDocument(doc)
-  const company = counterpartyName(doc) ?? doc.storedFilename
+  const company = counterpartyName(doc)?.trim() || doc.storedFilename
   const isEur = (doc.originalCurrency ?? 'EUR') === 'EUR'
   const gross = doc.grossAmountOriginal
   const grossEur = doc.grossAmountEur
@@ -48,23 +66,25 @@ export function DocumentRow({
   return (
     <div
       className={`doc-row${doc.deletedAt ? ' deleted' : ''}`}
-      role="button"
-      tabIndex={0}
+      data-document-id={doc.id}
       title={compact ? (treatment ?? undefined) : undefined}
-      onClick={() => onOpen(doc.id)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' && e.target === e.currentTarget) onOpen(doc.id)
-      }}
     >
       {selectable ? (
-        <input
-          type="checkbox"
-          checked={selected ?? false}
-          aria-label={t('documents.selectRow')}
-          onClick={(e) => e.stopPropagation()}
-          onChange={() => onToggleSelect?.(doc.id)}
-        />
+        <span style={rowControlStyle}>
+          <input
+            type="checkbox"
+            checked={selected ?? false}
+            aria-label={`${t('documents.selectRow')}: ${company}`}
+            onChange={() => onToggleSelect?.(doc.id)}
+          />
+        </span>
       ) : null}
+      <button
+        type="button"
+        style={openButtonStyle}
+        aria-label={`${t('common.open')}: ${company}`}
+        onClick={() => onOpen(doc.id)}
+      />
       <AttentionBadge level={attention} />
       <DirectionChip direction={doc.direction} />
       <div className="doc-main">
@@ -74,8 +94,7 @@ export function DocumentRow({
             ? [doc.invoiceDate ? formatIsoDate(doc.invoiceDate, lang) : '—']
             : [
                 doc.invoiceDate ? formatIsoDate(doc.invoiceDate, lang) : '—',
-                treatment,
-                t(`attention.label.${attention}`)
+                treatment
               ]
           )
             .filter(Boolean)
@@ -85,7 +104,9 @@ export function DocumentRow({
       <div className="doc-amount">
         {gross !== null ? (
           <>
-            <div>{grossEur !== null ? formatEur(grossEur, lang) : isEur ? formatEur(gross, lang) : '—'}</div>
+            <div>
+              {grossEur !== null ? formatEur(grossEur, lang) : isEur ? formatEur(gross, lang) : '—'}
+            </div>
             {!isEur ? (
               <div className="orig">{formatCurrencyAmount(gross, doc.originalCurrency, lang)}</div>
             ) : null}
@@ -94,7 +115,13 @@ export function DocumentRow({
           <div className="muted">—</div>
         )}
       </div>
-      {trailing}
+      {trailing !== undefined && trailing !== null ? (
+        <span style={rowControlStyle}>{trailing}</span>
+      ) : (
+        <span className="doc-chevron" aria-hidden="true">
+          <Icon name="chevron-right" size={14} />
+        </span>
+      )}
     </div>
   )
 }

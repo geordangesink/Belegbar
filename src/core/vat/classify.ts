@@ -11,7 +11,7 @@ import type {
 } from '../../shared/domain'
 import { roundMoney } from '../currency/convert'
 
-export const VAT_ENGINE_VERSION = '2026.1'
+export const VAT_ENGINE_VERSION = '2026.2'
 
 export interface VatClassificationInput {
   direction: DocumentDirection
@@ -310,6 +310,28 @@ const TREATMENT_ORDER: VatTreatmentCode[] = [
   'UNKNOWN_REVIEW'
 ]
 
+const INCOME_TREATMENTS: ReadonlySet<VatTreatmentCode> = new Set([
+  'DE_DOMESTIC_19',
+  'DE_DOMESTIC_7',
+  'DE_DOMESTIC_0_EXEMPT',
+  'EU_B2B_REVERSE_CHARGE_REVENUE',
+  'THIRD_COUNTRY_B2B_SERVICE',
+  'KLEINUNTERNEHMER'
+])
+
+const EXPENSE_TREATMENTS: ReadonlySet<VatTreatmentCode> = new Set([
+  'DE_EXPENSE_INPUT_VAT',
+  'DE_EXPENSE_NO_INPUT_VAT',
+  'EXPENSE_REVERSE_CHARGE_13B'
+])
+
+export function isVatTreatmentApplicable(
+  direction: DocumentDirection,
+  code: VatTreatmentCode
+): boolean {
+  return (direction === 'income' ? INCOME_TREATMENTS : EXPENSE_TREATMENTS).has(code)
+}
+
 interface ResultOverrides {
   confidence: VatConfidence
   reasons: string[]
@@ -347,7 +369,11 @@ function result(
 /** All codes with bilingual labels + legal basis, for the treatment picker. */
 export function listVatTreatments(): VatClassificationResult[] {
   return TREATMENT_ORDER.map((code) =>
-    result(code, { confidence: 'high', reasons: [] })
+    result(code, {
+      confidence: code === 'UNKNOWN_REVIEW' ? 'low' : 'high',
+      reasons: [],
+      requiresUserConfirmation: code === 'UNKNOWN_REVIEW'
+    })
   )
 }
 
@@ -821,17 +847,30 @@ function classifyExpense(input: VatClassificationInput): VatClassificationResult
   }
 
   const explicitNoVat = input.vatAmount === 0 || input.vatExemptWording
-  if (issuerCountry === 'DE' && explicitNoVat) {
-    return result('DE_EXPENSE_NO_INPUT_VAT', {
+  const domesticIssuer =
+    issuerCountry === 'DE' || (issuerCountry === null && prefix === 'DE')
+  if (domesticIssuer && explicitNoVat && input.reverseChargeWording) {
+    return result('UNKNOWN_REVIEW', {
       germanVatAmount: 0,
-      confidence: 'medium',
+      confidence: 'low',
       requiresUserConfirmation: true,
       reasons: [
-        'A German supplier charged no VAT on this document.',
-        'Without charged VAT there is no input VAT to deduct; the reason for the missing VAT is unclear.'
+        'The German supplier charged no VAT and the document contains reverse-charge wording.',
+        'Domestic reverse-charge cases can create VAT liability under § 13b UStG and need a separate assessment.'
       ],
       unresolvedQuestions: [
-        'Why is no VAT shown — small-business supplier (§ 19 UStG), exemption (§ 4 UStG), or an incomplete receipt?'
+        'Does a domestic reverse-charge rule under § 13b UStG apply to this purchase?'
+      ]
+    })
+  }
+  if (domesticIssuer && explicitNoVat) {
+    return result('DE_EXPENSE_NO_INPUT_VAT', {
+      germanVatAmount: 0,
+      legalBasis: '§ 15 Abs. 1 Satz 1 Nr. 1 UStG',
+      confidence: 'high',
+      reasons: [
+        'A German supplier charged no VAT on this document.',
+        'Without separately stated VAT there is no input VAT to deduct; the gross amount is the business expense.'
       ]
     })
   }

@@ -2,11 +2,15 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode
 } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Icon } from '../components/Icon'
 
 export type ToastKind = 'info' | 'success' | 'error'
 
@@ -36,17 +40,38 @@ const GLYPH: Record<ToastKind, { char: string; cls: string }> = {
   error: { char: '✕', cls: 'crit' }
 }
 
+const TOAST_DURATION = 4500
+
 export function ToastProvider({ children }: { children: ReactNode }): ReactNode {
+  const { t } = useTranslation()
   const [toasts, setToasts] = useState<Toast[]>([])
   const nextId = useRef(1)
+  const timers = useRef(new Map<number, number>())
+
+  const dismiss = useCallback((id: number) => {
+    const timer = timers.current.get(id)
+    if (timer !== undefined) window.clearTimeout(timer)
+    timers.current.delete(id)
+    setToasts((list) => list.filter((toast) => toast.id !== id))
+  }, [])
 
   const show = useCallback((text: string, kind: ToastKind = 'info') => {
     const id = nextId.current++
     setToasts((list) => [...list, { id, kind, text }])
-    window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
+      timers.current.delete(id)
       setToasts((list) => list.filter((t) => t.id !== id))
-    }, 4500)
+    }, TOAST_DURATION)
+    timers.current.set(id, timer)
   }, [])
+
+  useEffect(
+    () => () => {
+      for (const timer of timers.current.values()) window.clearTimeout(timer)
+      timers.current.clear()
+    },
+    []
+  )
 
   const apiValue = useMemo<ToastApi>(
     () => ({
@@ -62,11 +87,27 @@ export function ToastProvider({ children }: { children: ReactNode }): ReactNode 
       {children}
       <div className="toast-stack" aria-live="polite">
         {toasts.map((toast) => (
-          <div key={toast.id} className="toast">
+          <div
+            key={toast.id}
+            className={`toast toast-${toast.kind}`}
+            style={{ '--toast-duration': `${TOAST_DURATION}ms` } as CSSProperties}
+          >
             <span className={`status-glyph ${GLYPH[toast.kind].cls}`} aria-hidden="true">
               {GLYPH[toast.kind].char}
             </span>
-            <span>{toast.text}</span>
+            <span className="toast-message">{toast.text}</span>
+            <button
+              type="button"
+              className="icon-btn toast-dismiss"
+              aria-label={t('common.close')}
+              title={t('common.close')}
+              onClick={() => dismiss(toast.id)}
+            >
+              <Icon name="close" size={12} />
+            </button>
+            <span className="toast-progress" aria-hidden="true">
+              <span className="toast-progress-bar" />
+            </span>
           </div>
         ))}
       </div>

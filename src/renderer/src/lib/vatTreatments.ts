@@ -3,7 +3,8 @@
  * Labels/descriptions come from i18n (vat.treatment.* / vat.treatmentDesc.*);
  * the legal basis is a citation and stays identical in both languages.
  */
-import type { VatTreatmentCode } from '@shared/domain'
+import type { DocumentDirection, VatTreatmentCode } from '@shared/domain'
+import { isVatTreatmentApplicable } from '@core/vat/classify'
 
 export interface VatTreatmentOption {
   code: VatTreatmentCode
@@ -22,6 +23,20 @@ export const VAT_TREATMENT_OPTIONS: VatTreatmentOption[] = [
   { code: 'KLEINUNTERNEHMER', legalBasis: '§ 19 UStG' },
   { code: 'UNKNOWN_REVIEW', legalBasis: null }
 ]
+
+export function vatTreatmentOptionsForDirection(
+  direction: DocumentDirection,
+  suggestedCode?: string | null
+): VatTreatmentOption[] {
+  const options = VAT_TREATMENT_OPTIONS.filter(({ code }) =>
+    isVatTreatmentApplicable(direction, code)
+  )
+  if (!suggestedCode) return options
+  const suggested = options.find(({ code }) => code === suggestedCode)
+  return suggested
+    ? [suggested, ...options.filter(({ code }) => code !== suggested.code)]
+    : options
+}
 
 export function treatmentLabelKey(code: string): string {
   return `vat.treatment.${code}`

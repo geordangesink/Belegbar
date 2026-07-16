@@ -11,7 +11,10 @@ import { createRepositories, type Repositories } from '../../src/main/db/reposit
 import { ImportPipeline } from '../../src/main/import/pipeline'
 import { ensureDataDirs } from '../../src/main/storage/paths'
 import { nullLogger } from '../../src/main/log'
-import { GROSS_ONLY_RECEIPT } from '../../src/core/parsing/parse-invoice.fixtures'
+import {
+  GROSS_ONLY_RECEIPT,
+  USDT_INVOICE_INCOME
+} from '../../src/core/parsing/parse-invoice.fixtures'
 import type { ExtractionService, DocumentTextResult } from '../../src/main/extraction/service'
 import type { ImportFileProgress, TaxDocument } from '../../src/shared/domain'
 
@@ -232,13 +235,16 @@ function fakeTextResult(fullText: string): DocumentTextResult {
   }
 }
 
-async function runImport(sourceContent: string): Promise<ImportFileProgress> {
+async function runImport(
+  sourceContent: string,
+  options: { fullText?: string; direction?: 'income' | 'expense' } = {}
+): Promise<ImportFileProgress> {
   const dataDir = path.join(dir, 'data')
   ensureDataDirs(dataDir)
   repos.settings.update({ moveOriginalsAfterImport: false })
 
   const extraction = {
-    extractDocumentText: async () => fakeTextResult(GROSS_ONLY_RECEIPT),
+    extractDocumentText: async () => fakeTextResult(options.fullText ?? GROSS_ONLY_RECEIPT),
     thumbnail: async () => undefined
   } as unknown as ExtractionService
 
@@ -251,7 +257,10 @@ async function runImport(sourceContent: string): Promise<ImportFileProgress> {
     dataDir,
     repos,
     extraction,
-    ratesProvider: { name: 'test', getRate: async () => null },
+    ratesProviders: {
+      bmf: { name: 'test-bmf', getRate: async () => null },
+      ecb: { name: 'test-ecb', getRate: async () => null }
+    },
     emit: (progress) => {
       if (TERMINAL.has(progress.status)) resolveTerminal(progress)
     },
@@ -264,7 +273,7 @@ async function runImport(sourceContent: string): Promise<ImportFileProgress> {
 
   await pipeline.start({
     paths: [sourcePath],
-    direction: 'expense',
+    direction: options.direction ?? 'expense',
     duplicateAction: 'ask'
   })
   return terminal
@@ -319,5 +328,41 @@ describe('ImportPipeline near-duplicate detection', () => {
     expect(imported.issues.some((i) => i.code === 'possible_duplicate')).toBe(false)
     const events = repos.audit.listByDocument(imported.id)
     expect(events.some((e) => e.eventType === 'possible_duplicate_detected')).toBe(false)
+  })
+})
+
+describe('ImportPipeline exchange-rate severity', () => {
+  it('uses a USDT-to-EUR rate printed on the document', async () => {
+    const result = await runImport('%PDF-1.4\nUSDT invoice with rate', {
+      fullText: `${USDT_INVOICE_INCOME}\n1 USDT = 0.92 EUR`,
+      direction: 'income'
+    })
+    const imported = repos.documents.getById(result.documentId!)!
+
+    expect(imported.issues.some((issue) => issue.code === 'missing_exchange_rate')).toBe(
+      false
+    )
+    expect(imported.issues.some((issue) => issue.code === 'non_iso_currency')).toBe(true)
+    expect(imported.exchangeRateToEur).toBe(0.92)
+    expect(imported.exchangeRateSource).toBe('document')
+    expect(imported.grossAmountEur).toBe(6946.52)
+  })
+
+  it('marks a USDT document without a rate critical and leaves EUR totals unknown', async () => {
+    const result = await runImport('%PDF-1.4\nUSDT invoice', {
+      fullText: USDT_INVOICE_INCOME,
+      direction: 'income'
+    })
+    const imported = repos.documents.getById(result.documentId!)!
+    expect(imported.issues).toContainEqual({
+      code: 'missing_exchange_rate',
+      severity: 'critical',
+      messageKey: 'issues.missing_exchange_rate',
+      field: 'exchangeRateToEur',
+      params: undefined
+    })
+    expect(imported.netAmountEur).toBeNull()
+    expect(imported.vatAmountEur).toBeNull()
+    expect(imported.grossAmountEur).toBeNull()
   })
 })

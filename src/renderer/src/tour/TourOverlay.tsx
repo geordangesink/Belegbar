@@ -5,8 +5,9 @@
  * current target, found via its data-tour attribute and measured with
  * getBoundingClientRect (re-measured on resize/scroll). A floating card shows
  * title, body, step count and navigation. Esc exits, arrow keys navigate.
- * Steps may navigate screens via the router before measuring; missing targets
- * are skipped silently in the current travel direction.
+ * Steps may navigate screens via the router before measuring. Conditional
+ * screen targets fall back to a centered card; unavailable document-only
+ * targets are skipped in the current travel direction.
  */
 import {
   useEffect,
@@ -17,8 +18,9 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../lib/api'
-import { useRouter } from '../context/RouterContext'
+import { useRouter, type Route } from '../context/RouterContext'
 import { useToast } from '../context/ToastContext'
+import { missingTargetShouldSkip, tourRouteMatches } from './navigation'
 import type { TourStepDef } from './steps'
 
 const FOCUSABLE =
@@ -46,10 +48,6 @@ function measure(el: Element): SpotRect {
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms))
-}
-
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => window.requestAnimationFrame(() => resolve()))
 }
@@ -62,7 +60,7 @@ export function TourOverlay({
   onExit: () => void
 }): ReactNode {
   const { t } = useTranslation()
-  const { go } = useRouter()
+  const { route, go } = useRouter()
   const toast = useToast()
 
   const [index, setIndex] = useState(0)
@@ -111,9 +109,14 @@ export function TourOverlay({
     return () => window.clearInterval(timer)
   }, [])
 
-  // Resolve the step: navigate, then poll for the target and measure it.
+  // Resolve the step in two phases. Navigation first reaches the requested
+  // route; the route change re-runs this effect after the new screen committed.
+  // A MutationObserver then attaches the spotlight as soon as async content
+  // mounts. Static conditional targets remain usable as unanchored stops.
   useEffect(() => {
     let cancelled = false
+    let observer: MutationObserver | null = null
+    let missingTimer: number | null = null
     setRect(null)
     targetRef.current = null
 
@@ -123,7 +126,7 @@ export function TourOverlay({
       return
     }
 
-    // A missing target skips the stop silently, in the travel direction.
+    // Document-only stops may skip when their target is unavailable.
     const skip = (): void => {
       let next = index + dirRef.current
       if (next < 0) {
@@ -135,6 +138,8 @@ export function TourOverlay({
     }
 
     const run = async (): Promise<void> => {
+      let targetRoute: Route | null = current.route ?? null
+
       if (current.needsDocument) {
         if (recentDocRef.current === undefined) {
           try {
@@ -153,33 +158,51 @@ export function TourOverlay({
           skip()
           return
         }
-        go({ name: 'review', id: recentDocRef.current })
-      } else if (current.route) {
-        go(current.route)
+        targetRoute = { name: 'review', id: recentDocRef.current }
       }
 
-      for (let attempt = 0; attempt < 40; attempt++) {
-        if (cancelled) return
+      if (targetRoute && !tourRouteMatches(route, targetRoute)) {
+        go(targetRoute)
+        return
+      }
+
+      let measuring = false
+      const locate = async (): Promise<void> => {
+        if (cancelled || measuring || targetRef.current) return
         const el = document.querySelector(`[data-tour="${current.target}"]`)
-        if (el) {
-          el.scrollIntoView({ block: 'center', inline: 'nearest' })
-          await nextFrame()
-          if (cancelled) return
-          targetRef.current = el
-          setRect(measure(el))
+        if (!el) return
+        measuring = true
+        targetRef.current = el
+        el.scrollIntoView({ block: 'center', inline: 'nearest' })
+        await nextFrame()
+        if (cancelled || !el.isConnected) {
+          targetRef.current = null
+          measuring = false
           return
         }
-        await sleep(50)
+        setRect(measure(el))
+        observer?.disconnect()
+        if (missingTimer !== null) window.clearTimeout(missingTimer)
       }
-      if (!cancelled) skip()
+
+      observer = new MutationObserver(() => void locate())
+      observer.observe(document.body, { attributes: true, childList: true, subtree: true })
+      await locate()
+
+      if (!targetRef.current && missingTargetShouldSkip(current)) {
+        missingTimer = window.setTimeout(() => {
+          if (!cancelled && !targetRef.current) skip()
+        }, 2000)
+      }
     }
 
     void run()
     return () => {
       cancelled = true
+      observer?.disconnect()
+      if (missingTimer !== null) window.clearTimeout(missingTimer)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index, steps, relocateNonce])
+  }, [go, index, relocateNonce, route, steps, t, toast])
 
   // Keep the spotlight glued to the target on resize and scroll.
   useEffect(() => {
@@ -215,11 +238,11 @@ export function TourOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, steps])
 
-  // Move focus into the card whenever a stop is shown.
-  const rectVisible = rect !== null
+  // Move focus into the card whenever a stop is shown, including the brief
+  // route-transition state before its target mounts.
   useEffect(() => {
-    if (rectVisible) cardRef.current?.focus()
-  }, [rectVisible, index])
+    cardRef.current?.focus()
+  }, [index])
 
   // Tab stays inside the card (same trap as Dialog).
   const trapTab = (e: ReactKeyboardEvent): void => {
@@ -240,9 +263,14 @@ export function TourOverlay({
   if (!step) return null
 
   const cardPos = ((): { top: number; left: number } => {
-    if (!rect) return { top: 0, left: 0 }
     const vw = window.innerWidth
     const vh = window.innerHeight
+    if (!rect) {
+      return {
+        top: Math.max(16, (vh - CARD_EST_HEIGHT) / 2),
+        left: Math.max(16, (vw - CARD_WIDTH) / 2)
+      }
+    }
     let top = rect.top + rect.height + MARGIN
     if (top + CARD_EST_HEIGHT > vh - 16) top = Math.max(16, rect.top - CARD_EST_HEIGHT - MARGIN)
     const left = Math.min(Math.max(16, rect.left), Math.max(16, vw - CARD_WIDTH - 16))
@@ -252,45 +280,47 @@ export function TourOverlay({
   const isLast = index === steps.length - 1
 
   return (
-    <div className="tour-root" role="presentation">
+    <div
+      className="tour-root"
+      role="presentation"
+      style={{ background: rect ? 'transparent' : 'rgba(5, 12, 8, 0.56)' }}
+    >
       {rect ? (
-        <>
-          <div
-            className="tour-cutout"
-            aria-hidden="true"
-            style={{ top: rect.top, left: rect.left, width: rect.width, height: rect.height }}
-          />
-          <div
-            className="tour-card"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t(`tour.steps.${step.id}.title`)}
-            ref={cardRef}
-            tabIndex={-1}
-            style={{ top: cardPos.top, left: cardPos.left }}
-            onKeyDown={trapTab}
-          >
-            <div className="tc-title">{t(`tour.steps.${step.id}.title`)}</div>
-            <div className="tc-body">{t(`tour.steps.${step.id}.body`)}</div>
-            <div className="tc-footer">
-              <span className="tc-count num">
-                {t('tour.stepCount', { current: index + 1, total: steps.length })}
-              </span>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={onExit}>
-                {t('tour.exit')}
-              </button>
-              {index > 0 ? (
-                <button type="button" className="btn btn-sm" onClick={() => advance(-1)}>
-                  {t('common.back')}
-                </button>
-              ) : null}
-              <button type="button" className="btn btn-primary btn-sm" onClick={() => advance(1)}>
-                {isLast ? t('tour.done') : t('common.next')}
-              </button>
-            </div>
-          </div>
-        </>
+        <div
+          className="tour-cutout"
+          aria-hidden="true"
+          style={{ top: rect.top, left: rect.left, width: rect.width, height: rect.height }}
+        />
       ) : null}
+      <div
+        className="tour-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t(`tour.steps.${step.id}.title`)}
+        ref={cardRef}
+        tabIndex={-1}
+        style={{ top: cardPos.top, left: cardPos.left }}
+        onKeyDown={trapTab}
+      >
+        <div className="tc-title">{t(`tour.steps.${step.id}.title`)}</div>
+        <div className="tc-body">{t(`tour.steps.${step.id}.body`)}</div>
+        <div className="tc-footer">
+          <span className="tc-count num">
+            {t('tour.stepCount', { current: index + 1, total: steps.length })}
+          </span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onExit}>
+            {t('tour.exit')}
+          </button>
+          {index > 0 ? (
+            <button type="button" className="btn btn-sm" onClick={() => advance(-1)}>
+              {t('common.back')}
+            </button>
+          ) : null}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => advance(1)}>
+            {isLast ? t('tour.done') : t('common.next')}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

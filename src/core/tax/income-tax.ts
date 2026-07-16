@@ -28,6 +28,11 @@ import {
   tariffMarginalRate,
   type Section32aParams
 } from './tariff-override'
+import {
+  getRegisteredSoliOverrideYears,
+  getSoliOverride,
+  type SoliRules
+} from './soli-rules'
 
 export interface IncomeTaxEngineInput {
   year: number
@@ -57,12 +62,69 @@ interface TariffParameters {
   year: number
   version: string
   params: Section32aParams
-  /** solidarity surcharge Freigrenze for single assessment (SolzG, not §32a) */
-  soliThresholdSingle: number
+  soli: SoliRules
 }
 
 const SOLI_RATE = 0.055
 const SOLI_MITIGATION_RATE = 0.119
+
+function soli(thresholdSingle: number): SoliRules {
+  return Object.freeze({
+    thresholdSingle,
+    thresholdJoint: thresholdSingle * 2,
+    rate: SOLI_RATE,
+    mitigationRate: SOLI_MITIGATION_RATE,
+    centRounding: 'down'
+  })
+}
+
+const TARIFF_2022: TariffParameters = {
+  year: 2022,
+  version: '2022.1',
+  params: {
+    basicAllowance: 10347,
+    zone2End: 14926,
+    zone3End: 58596,
+    zone4End: 277825,
+    zone2: { a: 1088.67, b: 1400 },
+    zone3: { a: 206.43, b: 2397, c: 869.32 },
+    zone4: { rate: 0.42, sub: 9336.45 },
+    zone5: { rate: 0.45, sub: 17671.2 }
+  },
+  soli: soli(16956)
+}
+
+const TARIFF_2023: TariffParameters = {
+  year: 2023,
+  version: '2023.1',
+  params: {
+    basicAllowance: 10908,
+    zone2End: 15999,
+    zone3End: 62809,
+    zone4End: 277825,
+    zone2: { a: 979.18, b: 1400 },
+    zone3: { a: 192.59, b: 2397, c: 966.53 },
+    zone4: { rate: 0.42, sub: 9972.98 },
+    zone5: { rate: 0.45, sub: 18307.73 }
+  },
+  soli: soli(17543)
+}
+
+const TARIFF_2024: TariffParameters = {
+  year: 2024,
+  version: '2024.1',
+  params: {
+    basicAllowance: 11784,
+    zone2End: 17005,
+    zone3End: 66760,
+    zone4End: 277825,
+    zone2: { a: 954.8, b: 1400 },
+    zone3: { a: 181.19, b: 2397, c: 991.21 },
+    zone4: { rate: 0.42, sub: 10636.31 },
+    zone5: { rate: 0.45, sub: 18971.06 }
+  },
+  soli: soli(18130)
+}
 
 const TARIFF_2025: TariffParameters = {
   year: 2025,
@@ -77,7 +139,7 @@ const TARIFF_2025: TariffParameters = {
     zone4: { rate: 0.42, sub: 10911.92 },
     zone5: { rate: 0.45, sub: 19246.67 }
   },
-  soliThresholdSingle: 19950
+  soli: soli(19950)
 }
 
 const TARIFF_2026: TariffParameters = {
@@ -93,16 +155,27 @@ const TARIFF_2026: TariffParameters = {
     zone4: { rate: 0.42, sub: 11135.63 },
     zone5: { rate: 0.45, sub: 19470.38 }
   },
-  soliThresholdSingle: 20350
+  soli: soli(20350)
 }
 
 /** Ascending by year. */
-const BUILT_IN: TariffParameters[] = [TARIFF_2025, TARIFF_2026]
+const BUILT_IN: TariffParameters[] = [
+  TARIFF_2022,
+  TARIFF_2023,
+  TARIFF_2024,
+  TARIFF_2025,
+  TARIFF_2026
+]
 
 function round2(value: number): number {
   const sign = value < 0 ? -1 : 1
   const scaled = Number((Math.abs(value) * 100).toPrecision(12))
   return (sign * Math.round(scaled)) / 100
+}
+
+function truncate2(value: number): number {
+  const scaled = Number((Math.max(0, value) * 100).toPrecision(12))
+  return Math.floor(scaled) / 100
 }
 
 function makeEngine(p: TariffParameters): IncomeTaxEngine {
@@ -120,14 +193,12 @@ function makeEngine(p: TariffParameters): IncomeTaxEngine {
 
       let solidaritySurcharge = 0
       if (input.includeSolidaritySurcharge && incomeTax > 0) {
-        const threshold = joint
-          ? p.soliThresholdSingle * 2
-          : p.soliThresholdSingle
+        const threshold = joint ? p.soli.thresholdJoint : p.soli.thresholdSingle
         if (incomeTax > threshold) {
-          solidaritySurcharge = round2(
+          solidaritySurcharge = truncate2(
             Math.min(
-              SOLI_RATE * incomeTax,
-              SOLI_MITIGATION_RATE * (incomeTax - threshold)
+              p.soli.rate * incomeTax,
+              p.soli.mitigationRate * (incomeTax - threshold)
             )
           )
         }
@@ -154,35 +225,76 @@ function builtInFor(year: number): TariffParameters | undefined {
   return BUILT_IN.find((p) => p.year === year)
 }
 
-/**
- * Soli Freigrenze for override years: exact built-in year if we ship one,
- * otherwise the closest earlier built-in (SolzG thresholds are not part of
- * the §32a norm text, so overrides never carry them).
- */
-function soliThresholdFor(year: number): number {
-  const exact = builtInFor(year)
-  if (exact) return exact.soliThresholdSingle
-  let earlier: TariffParameters | undefined
-  for (const p of BUILT_IN) {
-    if (p.year < year) earlier = p
+export interface ResolvedSoli {
+  rules: SoliRules
+  sourceYear: number
+  versionSuffix: string
+  exactYearMatch: boolean
+}
+
+export function getSoliRulesForYear(year: number): ResolvedSoli {
+  const exactOverride = getSoliOverride(year)
+  if (exactOverride) {
+    return {
+      rules: exactOverride.rules,
+      sourceYear: year,
+      versionSuffix: `+${exactOverride.sourceLabel}`,
+      exactYearMatch: true
+    }
   }
-  return (earlier ?? BUILT_IN[0]!).soliThresholdSingle
+
+  const exactBuiltIn = builtInFor(year)
+  if (exactBuiltIn) {
+    return {
+      rules: exactBuiltIn.soli,
+      sourceYear: year,
+      versionSuffix: '',
+      exactYearMatch: true
+    }
+  }
+
+  const candidateYears = [
+    ...BUILT_IN.map((parameters) => parameters.year),
+    ...getRegisteredSoliOverrideYears()
+  ]
+  const uniqueYears = [...new Set(candidateYears)].sort((a, b) => a - b)
+  const sourceYear =
+    uniqueYears.filter((candidate) => candidate < year).at(-1) ?? uniqueYears[0]
+  if (sourceYear === undefined) throw new Error('no solidarity surcharge rules registered')
+
+  const override = getSoliOverride(sourceYear)
+  const rules = override?.rules ?? builtInFor(sourceYear)?.soli
+  if (!rules) throw new Error('no solidarity surcharge rules registered')
+  const source = override ? `${sourceYear}-${override.sourceLabel}` : String(sourceYear)
+  return {
+    rules,
+    sourceYear,
+    versionSuffix: `+solzg-fallback-${source}`,
+    exactYearMatch: false
+  }
 }
 
 /** Engine for exactly this year (override preferred), or undefined. */
 function engineForYear(year: number): IncomeTaxEngine | undefined {
   const builtIn = builtInFor(year)
   const override = getTariffOverride(year)
+  const resolvedSoli = getSoliRulesForYear(year)
   if (override) {
     const baseVersion = builtIn ? builtIn.version : `${year}.0`
     return makeEngine({
       year,
-      version: `${baseVersion}+${override.sourceLabel}`,
+      version: `${baseVersion}+${override.sourceLabel}${resolvedSoli.versionSuffix}`,
       params: override.params,
-      soliThresholdSingle: soliThresholdFor(year)
+      soli: resolvedSoli.rules
     })
   }
-  return builtIn ? makeEngine(builtIn) : undefined
+  return builtIn
+    ? makeEngine({
+        ...builtIn,
+        version: `${builtIn.version}${resolvedSoli.versionSuffix}`,
+        soli: resolvedSoli.rules
+      })
+    : undefined
 }
 
 /** Returns the engine for a year, or the closest earlier engine marked as fallback. */
@@ -217,4 +329,9 @@ export function listSupportedTaxYears(): number[] {
 export function getBuiltInTariffParams(year: number): Section32aParams | undefined {
   const p = builtInFor(year)
   return p ? structuredClone(p.params) : undefined
+}
+
+export function getBuiltInSoliRules(year: number): SoliRules | undefined {
+  const rules = builtInFor(year)?.soli
+  return rules ? structuredClone(rules) : undefined
 }

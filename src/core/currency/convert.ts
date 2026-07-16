@@ -52,6 +52,7 @@ export const ISO_4217_CURRENCIES = [
 ] as const
 
 const CURRENCY_SET: ReadonlySet<string> = new Set(ISO_4217_CURRENCIES)
+const DOCUMENT_QUOTED_ASSETS = new Set(['BTC', 'ETH', 'USDC', 'USDT'])
 
 export function isIsoCurrency(code: string): boolean {
   return CURRENCY_SET.has(code.trim().toUpperCase())
@@ -77,7 +78,11 @@ export function convertToEur(
 
 /** "1 USD = 0.9024 EUR" (also German "0,9024" and the inverted EUR-first form). */
 const INLINE_RATE_PATTERN =
-  /(^|[^0-9.,])1(?:[.,]0{1,2})?\s*([A-Za-z]{3})(?![A-Za-z])\s*=\s*([0-9]+(?:[.,][0-9]+)?)\s*([A-Za-z]{3})(?![A-Za-z])/g
+  /(^|[^0-9.,])1(?:[.,]0{1,2})?\s*([A-Za-z]{3,6})(?![A-Za-z])\s*=\s*([0-9]+(?:[.,][0-9]+)?)\s*([A-Za-z]{3,6})(?![A-Za-z])/g
+
+function acceptsDocumentQuote(code: string): boolean {
+  return isIsoCurrency(code) || DOCUMENT_QUOTED_ASSETS.has(code)
+}
 
 function parseRateNumber(raw: string): number | null {
   const lastComma = raw.lastIndexOf(',')
@@ -111,12 +116,12 @@ export function extractInlineRate(
     if (!from || !rawValue || !to) continue
     const value = parseRateNumber(rawValue)
     if (value === null) continue
-    if (to === 'EUR' && from !== 'EUR' && isIsoCurrency(from)) {
+    if (to === 'EUR' && from !== 'EUR' && acceptsDocumentQuote(from)) {
       return { currency: from, rateToEur: value }
     }
-    if (from === 'EUR' && to !== 'EUR' && isIsoCurrency(to)) {
+    if (from === 'EUR' && to !== 'EUR' && acceptsDocumentQuote(to)) {
       // quoted as EUR base → invert to get EUR per 1 unit of the currency
-      return { currency: to, rateToEur: Number((1 / value).toFixed(6)) }
+      return { currency: to, rateToEur: 1 / value }
     }
   }
   return null

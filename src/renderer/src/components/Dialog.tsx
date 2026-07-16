@@ -1,11 +1,13 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode
 } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Icon } from './Icon'
 
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -24,6 +26,8 @@ export function Dialog({
   footer?: ReactNode
   wide?: boolean
 }): ReactNode {
+  const { t } = useTranslation()
+  const titleId = useId()
   const ref = useRef<HTMLDivElement>(null)
   const previouslyFocused = useRef<Element | null>(null)
 
@@ -70,11 +74,26 @@ export function Dialog({
         className={`dialog${wide ? ' dialog-wide' : ''}`}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-labelledby={titleId}
         ref={ref}
         onKeyDown={onKeyDown}
       >
-        <div className="dialog-header">{title}</div>
+        <div className="dialog-header">
+          <div className="dialog-heading">
+            <h2 id={titleId} className="dialog-title">
+              {title}
+            </h2>
+          </div>
+          <button
+            type="button"
+            className="icon-btn dialog-close"
+            aria-label={t('common.close')}
+            title={t('common.close')}
+            onClick={onClose}
+          >
+            <Icon name="close" size={14} />
+          </button>
+        </div>
         <div className="dialog-body">{children}</div>
         {footer ? <div className="dialog-footer">{footer}</div> : null}
       </div>

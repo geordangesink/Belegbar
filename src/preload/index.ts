@@ -42,7 +42,11 @@ const api: BelegbarApi = {
   reExtractDocuments: (ids) => ipcRenderer.invoke(IPC.reExtractDocuments, { ids }),
   deleteDocument: (id, mode) =>
     ipcRenderer.invoke(IPC.deleteDocument, { id, mode: mode ?? 'trash' }),
+  deleteDocuments: (ids, mode) =>
+    ipcRenderer.invoke(IPC.deleteDocuments, { ids, mode: mode ?? 'trash' }),
+  emptyTrash: () => ipcRenderer.invoke(IPC.emptyTrash),
   restoreDocument: (id) => ipcRenderer.invoke(IPC.restoreDocument, { id }),
+  saveDocumentCopies: (ids) => ipcRenderer.invoke(IPC.saveDocumentCopies, { ids }),
   getDocumentPdf: (id) => ipcRenderer.invoke(IPC.getDocumentPdf, { id }),
   revealDocument: (id) => ipcRenderer.invoke(IPC.revealDocument, { id }),
   openDocumentExternal: (id) => ipcRenderer.invoke(IPC.openDocumentExternal, { id }),

@@ -84,7 +84,7 @@ function eur(value: number): string {
   return `${value.toFixed(2)} EUR`
 }
 
-function buildSummaryText(
+export function buildSummaryText(
   docs: TaxDocument[],
   period: TaxPeriod,
   settings: AppSettings
@@ -117,14 +117,20 @@ function buildSummaryText(
   lines.push(
     `Ausgaben / Expenses: confirmed ${eur(tax.recognizedExpenses.confirmed)}, provisional ${eur(tax.recognizedExpenses.provisional)}`
   )
-  lines.push(`Geschätzter Gewinn / Estimated profit: ${eur(tax.estimatedProfit)}`)
+  lines.push(`Betrieblicher Gewinn vor persönlichen Steuern / Business profit before personal taxes: ${eur(tax.estimatedProfit)}`)
   lines.push(
     `Geschätztes zu versteuerndes Einkommen / Est. taxable income: ${eur(tax.estimatedTaxableIncome)}`
   )
   lines.push(`Geschätzte Einkommensteuer / Est. income tax: ${eur(tax.estimatedIncomeTax)}`)
-  lines.push(`Solidaritätszuschlag / Solidarity surcharge: ${eur(tax.solidaritySurcharge)}`)
-  lines.push(`Kirchensteuer / Church tax: ${eur(tax.churchTax)}`)
-  lines.push(`Vorauszahlungen / Prepayments: ${eur(tax.prepayments)}`)
+  if (settings.includeSolidaritySurcharge) {
+    lines.push(`Solidaritätszuschlag / Solidarity surcharge: ${eur(tax.solidaritySurcharge)}`)
+  }
+  if (settings.churchTax !== 'none') {
+    lines.push(`Kirchensteuer / Church tax: ${eur(tax.churchTax)}`)
+  }
+  if (tax.prepayments !== 0) {
+    lines.push(`Vorauszahlungen / Prepayments: ${eur(tax.prepayments)}`)
+  }
   lines.push(`Empfohlene Rücklage / Suggested reserve: ${eur(tax.suggestedReserve)}`)
   if (tax.assumptions.length > 0) {
     lines.push('')

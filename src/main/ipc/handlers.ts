@@ -5,10 +5,12 @@
  * which the renderer maps to i18n strings.
  */
 import { app, dialog, ipcMain, shell, type BrowserWindow } from 'electron'
+import path from 'node:path'
 import { z, ZodError } from 'zod'
 import {
   IPC,
   deleteDocumentSchema,
+  deleteDocumentsSchema,
   documentIdSchema,
   exportPeriodSchema,
   importFilesSchema,
@@ -16,6 +18,7 @@ import {
   periodSchema,
   reExtractSchema,
   runLlmCheckSchema,
+  saveDocumentCopiesSchema,
   setDirectionSchema,
   setPaymentDateSchema,
   setVatTreatmentSchema,
@@ -61,6 +64,8 @@ export interface HandlerContext {
 const ERROR_KEY_PATTERN = /^[a-z][a-z0-9_]*$/
 
 export function registerIpcHandlers(ctx: HandlerContext): void {
+  let lastCopyDirectory: string | null = null
+
   function handle<S extends z.ZodTypeAny>(
     channel: string,
     schema: S | null,
@@ -124,7 +129,67 @@ export function registerIpcHandlers(ctx: HandlerContext): void {
   )
   handle(IPC.reExtractDocuments, reExtractSchema, (p) => ctx.pipeline.reExtract(p.ids))
   handle(IPC.deleteDocument, deleteDocumentSchema, (p) => ctx.documents.delete(p.id, p.mode))
+  handle(IPC.deleteDocuments, deleteDocumentsSchema, (p) =>
+    ctx.documents.deleteMany(p.ids, p.mode)
+  )
+  handle(IPC.emptyTrash, null, () => ctx.documents.emptyTrash())
   handle(IPC.restoreDocument, documentIdSchema, (p) => ctx.documents.restore(p.id))
+  handle(IPC.saveDocumentCopies, saveDocumentCopiesSchema, async (p) => {
+    const ids = [...new Set(p.ids)]
+    const defaultDirectory = lastCopyDirectory ?? app.getPath('documents')
+    const window = ctx.getWindow()
+
+    if (ids.length === 1) {
+      const document = ctx.repos.documents.getById(ids[0]!)
+      if (!document) return { canceled: false, saved: 0, failed: 1 }
+      const options = {
+        defaultPath: path.join(defaultDirectory, path.basename(document.storedFilename)),
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+        properties: ['createDirectory', 'showOverwriteConfirmation'] as (
+          | 'createDirectory'
+          | 'showOverwriteConfirmation'
+        )[]
+      }
+      const picked = window
+        ? await dialog.showSaveDialog(window, options)
+        : await dialog.showSaveDialog(options)
+      if (picked.canceled || picked.filePath === '') {
+        return { canceled: true, saved: 0, failed: 0 }
+      }
+      const destination =
+        path.extname(picked.filePath).toLowerCase() === '.pdf'
+          ? picked.filePath
+          : `${picked.filePath}.pdf`
+      lastCopyDirectory = path.dirname(destination)
+      return ctx.documents.saveDocumentCopies(ids, {
+        kind: 'file',
+        path: destination
+      })
+    }
+
+    if (!ids.some((id) => ctx.repos.documents.getById(id) !== null)) {
+      return { canceled: false, saved: 0, failed: ids.length }
+    }
+    const options = {
+      defaultPath: defaultDirectory,
+      properties: ['openDirectory', 'createDirectory'] as (
+        | 'openDirectory'
+        | 'createDirectory'
+      )[]
+    }
+    const picked = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options)
+    if (picked.canceled || picked.filePaths.length === 0) {
+      return { canceled: true, saved: 0, failed: 0 }
+    }
+    const destination = picked.filePaths[0]!
+    lastCopyDirectory = destination
+    return ctx.documents.saveDocumentCopies(ids, {
+      kind: 'directory',
+      path: destination
+    })
+  })
 
   handle(IPC.getDocumentPdf, documentIdSchema, async (p) => {
     const bytes = await ctx.documents.getPdfBytes(p.id)

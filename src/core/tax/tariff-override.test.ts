@@ -18,9 +18,10 @@ function params2026(): Section32aParams {
 afterEach(() => clearTariffOverrides())
 
 describe('validateTariffParams', () => {
-  it('accepts both built-in parameter sets', () => {
-    expect(validateTariffParams(getBuiltInTariffParams(2025)!)).toEqual([])
-    expect(validateTariffParams(getBuiltInTariffParams(2026)!)).toEqual([])
+  it('accepts all built-in parameter sets', () => {
+    for (const year of [2022, 2023, 2024, 2025, 2026]) {
+      expect(validateTariffParams(getBuiltInTariffParams(year)!)).toEqual([])
+    }
   })
 
   it('rejects a basic allowance outside [10000, 25000]', () => {
@@ -149,7 +150,9 @@ describe('engine integration (precedence + version labeling)', () => {
     const exact = getIncomeTaxEngine(2027)
     expect(exact.exactYearMatch).toBe(true)
     expect(exact.engine.year).toBe(2027)
-    expect(exact.engine.version).toBe('2027.0+gii-20270102')
+    expect(exact.engine.version).toBe(
+      '2027.0+gii-20270102+solzg-fallback-2026'
+    )
   })
 
   it('later years fall back to the closest earlier override', () => {
@@ -157,7 +160,9 @@ describe('engine integration (precedence + version labeling)', () => {
     const fallback = getIncomeTaxEngine(2028)
     expect(fallback.exactYearMatch).toBe(false)
     expect(fallback.engine.year).toBe(2027)
-    expect(fallback.engine.version).toBe('2027.0+gii-20270102')
+    expect(fallback.engine.version).toBe(
+      '2027.0+gii-20270102+solzg-fallback-2026'
+    )
   })
 
   it('clearing overrides restores the built-in engines', () => {

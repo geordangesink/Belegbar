@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 import type { TaxDocument } from '@shared/domain'
+import type { FieldAttentionLevel } from '@core/review/attention'
 import type { UpdateDocumentPayload } from '@shared/ipc'
-import { ConfidenceChip, confidenceLevel } from '../../components/StatusBits'
+import { ConfidenceChip, type ConfidenceLevel } from '../../components/StatusBits'
 
 export type Patch = UpdateDocumentPayload['patch']
 export type PatchKey = keyof Patch
@@ -17,39 +18,37 @@ export function effective<K extends PatchKey>(
   return (raw === undefined ? null : raw) as Patch[K] | null
 }
 
-/** Extraction confidence for a field; tries aliases (e.g. currency). */
-export function fieldConf(doc: TaxDocument, ...keys: string[]): number | undefined {
-  for (const key of keys) {
-    const c = doc.fieldConfidence[key]
-    if (typeof c === 'number') return c
-  }
-  return undefined
-}
-
 export function FieldRow({
   label,
   doc,
   patch,
   fieldKey,
-  confKeys,
+  fieldAttention,
   children
 }: {
   label: string
   doc: TaxDocument
   patch: Patch
   fieldKey: PatchKey
-  /** extra keys to look up confidence under */
-  confKeys?: string[]
+  fieldAttention: Readonly<Record<string, FieldAttentionLevel>>
   children: ReactNode
 }): ReactNode {
   const edited = fieldKey in patch
   const value = effective(doc, patch, fieldKey)
-  const level = confidenceLevel(value, fieldConf(doc, fieldKey, ...(confKeys ?? [])), edited)
+  const attention = fieldAttention[fieldKey]
+  const missing = value === null || value === undefined || value === ''
+  const level: ConfidenceLevel = edited
+    ? 'manual'
+    : attention
+      ? missing
+        ? 'missing'
+        : 'check'
+      : 'recognized'
   return (
     <div className="field-row">
       <div className="fr-label-line">
         <label htmlFor={`field-${fieldKey}`}>{label}</label>
-        <ConfidenceChip level={level} />
+        {level !== 'recognized' ? <ConfidenceChip level={level} attention={attention} /> : null}
       </div>
       {children}
     </div>

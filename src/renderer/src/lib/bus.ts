@@ -2,11 +2,12 @@
  * Tiny data-refresh bus: mutations and finished imports invalidate all
  * period/document derived queries. Screens re-fetch when the version bumps.
  */
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 
 type Listener = () => void
 
 const listeners = new Set<Listener>()
+let dataVersion = 0
 
 export function onDataChanged(listener: Listener): () => void {
   listeners.add(listener)
@@ -16,14 +17,13 @@ export function onDataChanged(listener: Listener): () => void {
 }
 
 export function emitDataChanged(): void {
+  dataVersion += 1
   for (const listener of [...listeners]) listener()
 }
 
 /** Bumps on every data change; put it into fetch-effect deps. */
 export function useDataVersion(): number {
-  const [version, setVersion] = useState(0)
-  useEffect(() => onDataChanged(() => setVersion((v) => v + 1)), [])
-  return version
+  return useSyncExternalStore(onDataChanged, () => dataVersion, () => dataVersion)
 }
 
 let llmRefreshWired = false

@@ -213,31 +213,42 @@ export class LlmChecker {
     // reload: the document may have been edited/confirmed during inference
     const fresh = this.deps.repos.documents.getById(id)
     if (!this.isCheckable(fresh)) return false
-
-    const merge = mergeVerdict(fresh, result)
-    if (merge.changed) {
-      // read-modify-write the raw JSON object; spreading keeps every existing
-      // key (including vatClassification) intact
-      const rawJson: Record<string, unknown> =
-        typeof fresh.extractionRawJson === 'object' && fresh.extractionRawJson !== null
-          ? { ...(fresh.extractionRawJson as Record<string, unknown>) }
-          : {}
-      rawJson['llmCheck'] = result
-      // mergeVerdict returns the COMPLETE updated issue list (it replaces
-      // stale llm_disagreement entries in place) — assign, never append
-      const issues = merge.newIssues
-      const next: TaxDocument = {
-        ...fresh,
-        fieldConfidence: merge.fieldConfidence,
-        issues,
-        reviewReasons: [...new Set(issues.map((i) => i.code))],
-        extractionRawJson: rawJson
-      }
-      this.deps.repos.documents.update(next)
+    if (fresh.updatedAt !== doc.updatedAt) {
+      if (!this.queue.includes(id)) this.queue.push(id)
+      this.deps.notify()
+      return false
     }
 
+    const merge = mergeVerdict(fresh, result)
+    const rawJson: Record<string, unknown> =
+      typeof fresh.extractionRawJson === 'object' && fresh.extractionRawJson !== null
+        ? { ...(fresh.extractionRawJson as Record<string, unknown>) }
+        : {}
+    const previousCheck = rawJson['llmCheck']
+    const previousFields =
+      previousCheck !== null && typeof previousCheck === 'object'
+        ? (previousCheck as Record<string, unknown>)['fields']
+        : null
+    const storedFields =
+      previousFields !== null && typeof previousFields === 'object'
+        ? { ...(previousFields as Record<string, LlmCheckResult['fields'][string]>) }
+        : {}
+    Object.assign(storedFields, merge.verdicts ?? fields)
+    rawJson['llmCheck'] = { ...result, fields: storedFields }
+    const issues = merge.newIssues
+    const next: TaxDocument = {
+      ...fresh,
+      fieldConfidence: merge.fieldConfidence,
+      issues,
+      reviewReasons: [...new Set(issues.map((i) => i.code))],
+      extractionRawJson: rawJson
+    }
+    this.deps.repos.documents.update(next)
+
     const agrees: Record<string, boolean> = {}
-    for (const [field, verdict] of Object.entries(fields)) agrees[field] = verdict.agrees
+    for (const [field, verdict] of Object.entries(merge.verdicts ?? fields)) {
+      agrees[field] = verdict.agrees
+    }
     this.deps.repos.audit.append({
       documentId: id,
       eventType: 'llm_check',

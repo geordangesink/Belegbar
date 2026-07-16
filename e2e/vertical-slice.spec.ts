@@ -103,6 +103,17 @@ test.describe.serial('vertical slice', () => {
         .isVisible()
         .catch(() => false)
       if (done) break
+      if (await page.locator('#onboarding-step-import').isVisible().catch(() => false)) {
+        const importMode = page.getByRole('group', {
+          name: /source files after import|quelldateien nach dem import/i
+        })
+        const copy = importMode.getByRole('button', { name: /^copy$|^kopieren$/i })
+        const move = importMode.getByRole('button', { name: /^move$|^verschieben$/i })
+        await copy.click()
+        await expect(copy).toHaveAttribute('aria-pressed', 'true')
+        await move.click()
+        await expect(move).toHaveAttribute('aria-pressed', 'true')
+      }
       const next = page
         .getByRole('button', { name: /weiter|continue|next|let.?s go|los geht|get started|fertig|finish/i })
         .first()
@@ -181,6 +192,25 @@ test.describe.serial('vertical slice', () => {
       )
       expect(confirmed.reviewStatus).toBe('confirmed')
     }
+
+    const confirmedId = await page.evaluate(async () => {
+      const res = await window.belegbar.listDocuments({ limit: 10, offset: 0 })
+      return res.documents.find((document) => document.reviewStatus === 'confirmed')?.id ?? null
+    })
+    if (confirmedId) {
+      const edited = await page.evaluate(async (id) => {
+        return window.belegbar.updateDocument({
+          id,
+          patch: { description: 'Edited after confirmation (E2E)' }
+        })
+      }, confirmedId)
+      expect(edited.reviewStatus).toBe('needs_review')
+      expect(edited.userConfirmedAt).toBeNull()
+      expect(edited.description).toContain('Edited after confirmation')
+      if (!edited.issues.some((issue) => issue.severity === 'critical')) {
+        await page.evaluate(async (id) => window.belegbar.confirmDocument(id), confirmedId)
+      }
+    }
   })
 
   test('overview, VAT summary and income-tax estimate respond with data', async () => {
@@ -216,6 +246,53 @@ test.describe.serial('vertical slice', () => {
     expect(
       est.recognizedIncome.confirmed + est.recognizedIncome.provisional
     ).toBeGreaterThan(0)
+  })
+
+  test('income-tax UI explains the tax base and hides disabled church tax', async () => {
+    await page.evaluate(async () => {
+      await window.belegbar.updateSettings({
+        language: 'en',
+        churchTax: 'none',
+        includeSolidaritySurcharge: true,
+        incomeTaxPrepayments: 0,
+        tourChoice: 'none'
+      })
+    })
+    await page.reload()
+    await page.waitForLoadState('domcontentloaded')
+
+    await page.getByRole('button', { name: 'Taxes', exact: true }).click()
+    await page.getByRole('tab', { name: 'Income tax' }).click()
+
+    const calculation = page.locator('.income-calc-card')
+    await expect(calculation).toContainText('Business profit (before personal taxes)')
+    await expect(calculation).toContainText('Taxable income (estimated tax base)')
+    await expect(calculation).toContainText('Solidarity surcharge')
+    await expect(calculation).not.toContainText('Church tax')
+    await expect(calculation).not.toContainText('Prepayments')
+    await expect(calculation).toContainText(
+      'Taxable income is the amount income tax is calculated from'
+    )
+
+    await page.getByRole('button', { name: 'Details' }).click()
+    await expect(page.getByText('From profit to taxable income')).toBeVisible()
+    await expect(page.getByText('Rules & sources')).toBeVisible()
+    await expect(page.getByRole('link', { name: /Income tax · § 32a EStG/ })).toHaveAttribute(
+      'href',
+      'https://www.gesetze-im-internet.de/estg/__32a.html'
+    )
+    await expect(
+      page.getByRole('link', { name: /Solidarity surcharge · §§ 3–4 SolzG/ })
+    ).toBeVisible()
+
+    const visualDir = process.env['BELEGBAR_VISUAL_DIR']
+    if (visualDir) {
+      fs.mkdirSync(visualDir, { recursive: true })
+      await page.screenshot({
+        path: path.join(visualDir, 'income-tax-details.png'),
+        fullPage: true
+      })
+    }
   })
 
   test('data and documents survive an application restart', async () => {

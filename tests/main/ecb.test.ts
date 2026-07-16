@@ -65,7 +65,7 @@ describe('EcbExchangeRateProvider', () => {
     expect(rate).toEqual({
       currency: 'USD',
       date: '2026-07-10',
-      rateToEur: Math.round((1 / 1.1) * 1e6) / 1e6,
+      rateToEur: 1 / 1.1,
       source: 'ECB'
     })
     expect(requestedUrl).toContain('/D.USD.EUR.SP00.A')

@@ -10,6 +10,7 @@ import { Documents } from '../screens/Documents'
 import { Review } from '../screens/review/Review'
 import { Taxes } from '../screens/taxes/Taxes'
 import { Settings } from '../screens/Settings'
+import appIconUrl from '../../../../build/icon.png'
 
 const NAV: { name: RouteName & ('overview' | 'documents' | 'taxes' | 'settings'); icon: IconName }[] = [
   { name: 'overview', icon: 'overview' },
@@ -20,17 +21,20 @@ const NAV: { name: RouteName & ('overview' | 'documents' | 'taxes' | 'settings')
 
 export function Shell(): ReactNode {
   const { t } = useTranslation()
-  const { route, go } = useRouter()
+  const { route, routeEntryId, go } = useRouter()
   const [search, setSearch] = useState('')
 
   const isReview = route.name === 'review'
+  const showPeriod = route.name === 'overview' || route.name === 'documents' || route.name === 'taxes'
+  const showSearch = route.name === 'overview' || route.name === 'taxes'
+  const routeKey = routeEntryId
 
   const content = (() => {
     switch (route.name) {
       case 'overview':
         return <Overview />
       case 'documents':
-        return <Documents preset={route.preset} />
+        return <Documents preset={route.preset} routeEntryId={routeEntryId} />
       case 'review':
         return <Review id={route.id} />
       case 'taxes':
@@ -44,66 +48,79 @@ export function Shell(): ReactNode {
     <TourProvider>
       <div className="shell">
         <nav className="sidebar" aria-label={t('app.name')}>
-          <div className="wordmark">
-            <svg
-              className="wordmark-glyph"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              aria-hidden="true"
-            >
-              {/* triangle sandwich from the top-front — mirrors build/icon.svg */}
-              <path d="M4.5 12.2 12 5.8l7.5 6.4H4.5Z" fill="currentColor" />
-              <rect x="3.4" y="13.7" width="17.2" height="1.9" fill="currentColor" />
-              <rect x="6.3" y="16.4" width="11.4" height="1.9" fill="currentColor" />
-              <rect x="3.4" y="19.1" width="17.2" height="1.9" fill="currentColor" />
-            </svg>
-            Beleg<span>bar</span>
+          <div className="sidebar-titlebar" aria-hidden="true" />
+          <div className="sidebar-brand">
+            <img className="wordmark-mark" src={appIconUrl} alt="" draggable={false} />
+            <div className="wordmark">
+              Beleg<span>bar</span>
+            </div>
           </div>
-          {NAV.map((item) => {
-            const active =
-              route.name === item.name || (item.name === 'documents' && route.name === 'review')
-            return (
-              <button
-                key={item.name}
-                type="button"
-                className={`nav-item${active ? ' active' : ''}`}
-                aria-current={active ? 'page' : undefined}
-                onClick={() => go({ name: item.name })}
-              >
-                <Icon name={item.icon} />
-                {t(`nav.${item.name}`)}
-              </button>
-            )
-          })}
+          <div className="nav-list">
+            {NAV.map((item) => {
+              const active =
+                route.name === item.name || (item.name === 'documents' && route.name === 'review')
+              return (
+                <button
+                  key={item.name}
+                  type="button"
+                  className={`nav-item${active ? ' active' : ''}`}
+                  aria-current={active ? 'page' : undefined}
+                  onClick={() => go({ name: item.name })}
+                >
+                  <span className="nav-icon">
+                    <Icon name={item.icon} />
+                  </span>
+                  <span>{t(`nav.${item.name}`)}</span>
+                </button>
+              )
+            })}
+          </div>
+          <div className="sidebar-footer">
+            <div className="privacy-card">
+              <span className="privacy-icon">
+                <Icon name="lock" size={14} />
+              </span>
+              <span>
+                <strong>{t('nav.privateTitle')}</strong>
+                <small>{t('nav.privateBody')}</small>
+              </span>
+            </div>
+          </div>
         </nav>
         <div className="main-col">
           <header className="topbar">
-            <PeriodSelector />
+            {showPeriod ? (
+              <div className="topbar-period">
+                <PeriodSelector />
+              </div>
+            ) : null}
             <span className="spacer" />
-            <form
-              role="search"
-              onSubmit={(e) => {
-                e.preventDefault()
-                const query = search.trim()
-                go({ name: 'documents', preset: query === '' ? undefined : { search: query } })
-                setSearch('')
-              }}
-            >
-              <input
-                className="input"
-                type="search"
-                style={{ width: 220 }}
-                placeholder={t('search.placeholder')}
-                aria-label={t('search.aria')}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </form>
+            {showSearch ? (
+              <form
+                className="topbar-search"
+                role="search"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  const query = search.trim()
+                  go({ name: 'documents', preset: query === '' ? undefined : { search: query } })
+                  setSearch('')
+                }}
+              >
+                <Icon name="search" size={15} />
+                <input
+                  type="search"
+                  placeholder={t('search.placeholder')}
+                  aria-label={t('search.aria')}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </form>
+            ) : null}
           </header>
           <main className="content" style={isReview ? { padding: 0, overflow: 'hidden' } : undefined}>
-            {content}
+            <div key={routeKey} className={`screen-transition${isReview ? ' review-screen' : ''}`}>
+              {content}
+            </div>
           </main>
         </div>
         <ImportPanel />

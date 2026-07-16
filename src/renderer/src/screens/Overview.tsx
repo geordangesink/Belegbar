@@ -29,11 +29,11 @@ export function Overview(): ReactNode {
       try {
         const [s, docs] = await Promise.all([
           api().getOverview(period),
-          api().listDocuments({ limit: 8 })
+          api().listDocuments({ limit: 8, sort: 'recent' })
         ])
         if (cancelled) return
         setSummary(s)
-        setRecent(docs.documents)
+        setRecent(docs.documents.filter((document) => document.deletedAt === null))
       } catch (err) {
         if (!cancelled) toast.error(t(errorToKey(err)))
       }
@@ -49,11 +49,11 @@ export function Overview(): ReactNode {
 
   const tiles = summary
     ? [
-        { label: t('overview.tileRevenue'), value: included(summary.revenueEur) },
-        { label: t('overview.tileExpenses'), value: included(summary.expensesEur) },
-        { label: t('overview.tileProfit'), value: summary.profitEur },
-        { label: t('overview.tileVat'), value: summary.vatPayableEur },
-        { label: t('overview.tileReserve'), value: summary.suggestedTaxReserveEur }
+        { key: 'revenue', label: t('overview.tileRevenue'), value: included(summary.revenueEur) },
+        { key: 'expenses', label: t('overview.tileExpenses'), value: included(summary.expensesEur) },
+        { key: 'profit', label: t('overview.tileProfit'), value: summary.profitEur },
+        { key: 'vat', label: t('overview.tileVat'), value: summary.vatPayableEur },
+        { key: 'reserve', label: t('overview.tileReserve'), value: summary.suggestedTaxReserveEur }
       ]
     : []
 
@@ -86,70 +86,81 @@ export function Overview(): ReactNode {
     : []
 
   return (
-    <div className="content-inner">
-      <div className="dropzones mb-24" data-tour="dropzones">
-        <DropZone direction="income" />
-        <DropZone direction="expense" />
-      </div>
+    <div className="content-inner overview-page">
+      <header className="page-header compact-page-header">
+        <h1>{t('nav.overview')}</h1>
+      </header>
+
+      <section className="import-surface" data-tour="dropzones">
+        <div className="import-heading">
+          <h2>{t('documents.addDocuments')}</h2>
+        </div>
+        <div className="dropzones">
+          <DropZone direction="income" />
+          <DropZone direction="expense" />
+        </div>
+      </section>
 
       {summary ? (
-        <>
-          <div className="tiles-row">
-            {tiles.map((tile) => (
-              <div key={tile.label} className="tile">
-                <span className="tile-label">{tile.label}</span>
-                <span className="tile-value">{formatEur(tile.value, lang)}</span>
-              </div>
-            ))}
-          </div>
-          {summary.documentsNeedingReview > 0 ? (
-            <div className="mt-8">
-              <button
-                type="button"
-                className="link-btn small"
-                style={{ color: 'var(--text-2)' }}
-                onClick={() => go({ name: 'documents', preset: { reviewStatus: 'needs_review' } })}
-              >
-                {t('overview.provisionalNote', { count: summary.documentsNeedingReview })}
-              </button>
+        <div className="tiles-row summary-tiles">
+          {tiles.map((tile) => (
+            <div key={tile.key} className={`tile tile-${tile.key}`}>
+              <span className="tile-label">{tile.label}</span>
+              <span className="tile-value">{formatEur(tile.value, lang)}</span>
             </div>
-          ) : null}
-        </>
-      ) : null}
+          ))}
+        </div>
+      ) : (
+        <div className="tiles-row summary-tiles" role="status" aria-label={t('app.loading')}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="tile tile-skeleton">
+              <span className="skeleton-line short" />
+              <span className="skeleton-line value" />
+            </div>
+          ))}
+        </div>
+      )}
 
-      {attention.length > 0 ? (
-        <section className="mt-32" data-tour="attention">
-          <h2 className="section-title">{t('overview.attentionTitle')}</h2>
-          <div className="card">
+      {summary && attention.length > 0 ? (
+        <section className="overview-section" data-tour="attention">
+          <div className="section-heading">
+            <h2>{t('overview.attentionTitle')}</h2>
+            <span className="count-pill">{attention.length}</span>
+          </div>
+          <div className="card attention-list">
             {attention.map((item) => (
               <button
                 key={item.key}
                 type="button"
-                className="doc-row"
-                style={{ width: '100%', border: 'none', textAlign: 'left' }}
+                className="doc-row attention-row"
                 onClick={item.onClick}
               >
-                <span className="status-glyph warn" aria-hidden="true">
-                  ⚠
+                <span className="attention-row-icon" aria-hidden="true">
+                  !
                 </span>
-                <span className="doc-main">{item.text}</span>
-                <Icon name="chevron-right" size={14} />
+                <span className="doc-main">
+                  <strong>{item.text}</strong>
+                </span>
+                <span className="row-action">
+                  <Icon name="chevron-right" size={14} />
+                </span>
               </button>
             ))}
           </div>
         </section>
       ) : null}
 
-      <section className="mt-32">
-        <h2 className="section-title">
-          {t('overview.recentTitle')}
-          <span style={{ fontWeight: 400, opacity: 0.75 }}>
-            {' · '}
-            {t('overview.recentAllPeriods')}
-          </span>
-        </h2>
+      <section className="overview-section recent-section">
+        <div className="section-heading">
+          <h2>{t('overview.recentTitle')}</h2>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => go({ name: 'documents' })}>
+            {t('overview.viewAll')} <Icon name="chevron-right" size={13} />
+          </button>
+        </div>
         {recent.length === 0 ? (
-          <div className="card empty-state">{t('overview.recentEmpty')}</div>
+          <div className="card empty-state">
+            <span>{t('documents.emptyTitle')}</span>
+          </div>
         ) : (
           <div className="card doc-list">
             {recent.map((doc) => (
