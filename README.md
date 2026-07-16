@@ -74,6 +74,22 @@ and are gitignored. Parser accuracy tests against them are opt-in:
 BELEGBAR_FIXTURE_TEXTS=/path/to/fixture-texts npm test -- tests/local
 ```
 
+## CI
+
+- **Test** (`.github/workflows/test.yml`): every push/PR — typecheck + unit
+  tests on Ubuntu/macOS/Windows, plus a fixture-free Electron E2E smoke test
+  (Linux under xvfb).
+- **Build** (`.github/workflows/build.yml`): pushing a `v*` tag (matching
+  `package.json` version) packages all six platform × arch combinations —
+  macOS/Windows/Linux, each x64 **and** arm64 — on native runners (several
+  native deps resolve host-specific binary packages, so no cross-compiling)
+  and attaches installers to a draft GitHub release. The ARM runners
+  (`windows-11-arm`, `ubuntu-24.04-arm`) are free for public repos only.
+
+```bash
+npm version 0.2.0 && git push --follow-tags   # triggers a release build
+```
+
 ## Packaging
 
 ```bash

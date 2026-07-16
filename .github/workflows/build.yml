@@ -1,0 +1,114 @@
+name: Build
+
+# Packages Belegbar for every platform × architecture whenever a version tag
+# (v1.2.3) is pushed, and attaches the installers to a GitHub release.
+#
+# One NATIVE runner per (os, arch): several dependencies (better-sqlite3,
+# @napi-rs/canvas, node-llama-cpp) resolve platform-specific binary packages
+# at install time based on the HOST — cross-compiling would silently package
+# the wrong architecture's binaries.
+#
+# NOTE: windows-11-arm and ubuntu-24.04-arm are free for public repositories.
+# On a private repo those two jobs need paid larger runners — comment them
+# out of the matrix or enable larger runners in the org settings.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Gate — tests must pass
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm run typecheck
+      - run: npm test
+
+  package:
+    name: Package ${{ matrix.name }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-14
+            args: --mac --arm64
+          - name: macOS x64
+            os: macos-13
+            args: --mac --x64
+          - name: Windows x64
+            os: windows-latest
+            args: --win --x64
+          - name: Windows arm64
+            os: windows-11-arm
+            args: --win --arm64
+          - name: Linux x64
+            os: ubuntu-latest
+            args: --linux --x64
+          - name: Linux arm64
+            os: ubuntu-24.04-arm
+            args: --linux --arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify tag matches package.json version
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::tag v$TAG does not match package.json version $PKG"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build bundles
+        run: npx electron-vite build
+
+      - name: Package
+        run: npx electron-builder ${{ matrix.args }} --publish never
+        env:
+          # unsigned builds — remove once signing certificates are configured
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: belegbar-${{ github.ref_name }}-${{ strategy.job-index }}
+          path: |
+            release/*.dmg
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Attach to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            release/*.dmg
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
