@@ -25,4 +25,5 @@ nsis:
 linux:
   target: [AppImage, deb]
   category: Office
+  syncDesktopName: true
 publish: null
