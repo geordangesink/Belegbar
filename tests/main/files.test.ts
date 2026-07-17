@@ -134,18 +134,23 @@ describe('atomicMove', () => {
     expect(fs.readFileSync(dest, 'utf8')).toBe('existing')
   })
 
-  it('keeps the source when the move fails (read-only destination dir)', async () => {
-    const src = write('src.pdf', 'important bytes')
-    const destDir = path.join(dir, 'readonly')
-    fs.mkdirSync(destDir)
-    fs.chmodSync(destDir, 0o555)
-    const dest = path.join(destDir, 'dest.pdf')
-    if (process.getuid && process.getuid() === 0) return // root ignores modes
-    await expect(atomicMove(src, dest)).rejects.toThrow()
-    expect(fs.existsSync(src)).toBe(true)
-    expect(fs.readFileSync(src, 'utf8')).toBe('important bytes')
-    expect(fs.existsSync(dest)).toBe(false)
-  })
+  // Windows ignores the read-only attribute on directories for file creation,
+  // so this failure mode cannot be provoked there
+  it.skipIf(process.platform === 'win32')(
+    'keeps the source when the move fails (read-only destination dir)',
+    async () => {
+      const src = write('src.pdf', 'important bytes')
+      const destDir = path.join(dir, 'readonly')
+      fs.mkdirSync(destDir)
+      fs.chmodSync(destDir, 0o555)
+      const dest = path.join(destDir, 'dest.pdf')
+      if (process.getuid && process.getuid() === 0) return // root ignores modes
+      await expect(atomicMove(src, dest)).rejects.toThrow()
+      expect(fs.existsSync(src)).toBe(true)
+      expect(fs.readFileSync(src, 'utf8')).toBe('important bytes')
+      expect(fs.existsSync(dest)).toBe(false)
+    }
+  )
 })
 
 describe('hasPdfMagic', () => {

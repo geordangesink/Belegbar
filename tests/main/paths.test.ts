@@ -11,7 +11,9 @@ import {
   resolveInside
 } from '../../src/main/storage/paths'
 
-const base = '/tmp/belegbar-data'
+// resolve so the expected values carry the drive letter on Windows,
+// matching what resolveInside/isInside produce via path.resolve
+const base = path.resolve('/tmp/belegbar-data')
 
 describe('resolveInside', () => {
   it('joins normal segments inside the base dir', () => {
