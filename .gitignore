@@ -12,6 +12,7 @@ example/
 
 # OS
 .DS_Store
+.claude
 Thumbs.db
 
 # Logs / env
