@@ -16,7 +16,10 @@ artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 mac:
   category: public.app-category.finance
   target: [dmg]
-  hardenedRuntime: false
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
 win:
   target: [nsis]
 nsis:
