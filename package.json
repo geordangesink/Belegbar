@@ -1,7 +1,7 @@
 {
   "name": "belegbar",
   "productName": "Belegbar",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Belege rein. Steuern klar. Local-first tax overview for German freelancers.",
   "main": "out/main/index.js",
   "desktopName": "belegbar.desktop",
