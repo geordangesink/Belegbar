@@ -26,6 +26,8 @@
   --crit-soft: #fbe9e7;
   --info: #65717e;
   --info-soft: #edf0f3;
+  --chart-income: #4f7766;
+  --chart-expense: #c7d8ce;
   --sidebar: #1b201d;
   --sidebar-2: #111411;
   --sidebar-text: #f2f5f2;
@@ -66,6 +68,8 @@
   --crit-soft: rgba(239, 129, 122, 0.13);
   --info: #a7b1bd;
   --info-soft: rgba(167, 177, 189, 0.11);
+  --chart-income: #86ae99;
+  --chart-expense: #52685c;
   --sidebar: #0b0e0c;
   --sidebar-2: #080a09;
   --sidebar-text: #eef3ef;
@@ -2230,6 +2234,204 @@ input[type='checkbox']:checked {
 
 .overview-section {
   margin-top: 26px;
+}
+
+.overview-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  align-items: stretch;
+  gap: 12px;
+}
+
+.overview-chart-card,
+.overview-recent-card {
+  min-width: 0;
+  min-height: 318px;
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+.overview-chart-card {
+  display: flex;
+  flex-direction: column;
+  padding: 16px 17px 14px;
+}
+
+.overview-recent-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.overview-card-heading {
+  display: flex;
+  min-height: 39px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.overview-recent-card > .overview-card-heading {
+  align-items: center;
+  padding: 13px 14px 10px;
+}
+
+.overview-card-heading h2 {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 660;
+  letter-spacing: -0.01em;
+}
+
+.overview-card-range {
+  flex: none;
+  padding-top: 1px;
+  color: var(--text-3);
+  font-size: 9px;
+  font-weight: 680;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.overview-chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-top: 5px;
+  color: var(--text-2);
+  font-size: 9.5px;
+}
+
+.overview-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.overview-chart-legend i {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  background: var(--chart-income);
+  border-radius: 2px;
+}
+
+.overview-chart-legend i.expense {
+  background: var(--chart-expense);
+}
+
+.overview-chart-plot {
+  position: relative;
+  min-height: 185px;
+  flex: 1;
+  margin-top: 11px;
+  overflow: hidden;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 43px,
+    var(--border) 44px
+  );
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.overview-chart-groups {
+  position: absolute;
+  z-index: 2;
+  inset: 0 8px;
+  display: grid;
+}
+
+.overview-chart-group {
+  position: relative;
+  min-width: 0;
+  height: 100%;
+}
+
+.overview-chart-bar {
+  position: absolute;
+  width: 10px;
+  min-height: 0;
+  background: var(--chart-income);
+  border-radius: 3px 3px 0 0;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 4%, transparent);
+  transition:
+    height 300ms var(--ease-out),
+    bottom 300ms var(--ease-out),
+    filter 160ms ease;
+}
+
+.overview-chart-bar:hover {
+  filter: saturate(1.15) brightness(0.98);
+}
+
+.overview-chart-bar.income {
+  left: calc(50% - 12px);
+}
+
+.overview-chart-bar.expense {
+  left: calc(50% + 2px);
+  background: var(--chart-expense);
+}
+
+.overview-chart-bar.negative {
+  border-radius: 0 0 3px 3px;
+}
+
+.overview-chart-zero {
+  position: absolute;
+  z-index: 1;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--border-strong);
+}
+
+.overview-chart-empty {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  left: 50%;
+  color: var(--text-2);
+  font-size: 10.5px;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+}
+
+.overview-chart-months {
+  display: grid;
+  padding: 0 8px;
+  margin-top: 7px;
+}
+
+.overview-chart-months span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 9px;
+  font-weight: 630;
+  letter-spacing: 0.025em;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.overview-recent-card .doc-list {
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+.overview-recent-card .doc-row {
+  min-height: 64px;
+}
+
+.overview-recent-card .empty-state {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  text-align: center;
 }
 
 .attention-list {

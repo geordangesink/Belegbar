@@ -48,6 +48,10 @@ test('boots, completes onboarding, persists a setting', async () => {
     await page.waitForTimeout(250)
   }
   await expect(page.getByRole('button', { name: /übersicht|overview/i }).first()).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: /einnahmen & ausgaben|income & expenses/i })
+  ).toBeVisible()
+  await expect(page.locator('[data-overview-chart] [data-series]')).toHaveCount(6)
 
   // the database round-trips: flip a setting and read it back
   const settings = await page.evaluate(() =>
@@ -63,4 +67,8 @@ test('boots, completes onboarding, persists a setting', async () => {
     year
   )
   expect(overview.revenueEur.confirmed).toBe(0)
+  expect(overview.monthly).toHaveLength(12)
+  expect(overview.monthly.every((month) => month.revenueEur === 0 && month.expensesEur === 0)).toBe(
+    true
+  )
 })

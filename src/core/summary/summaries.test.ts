@@ -723,6 +723,17 @@ describe('computeOverview', () => {
     expect(overview.revenueEur.provisional).toBe(1500)
     expect(overview.expensesEur.confirmed).toBe(2000)
     expect(overview.profitEur).toBe(10000 + 1500 - 2000)
+    expect(overview.monthly).toHaveLength(12)
+    expect(overview.monthly[4]).toEqual({ month: 5, revenueEur: 10000, expensesEur: 0 })
+    expect(overview.monthly[5]).toEqual({ month: 6, revenueEur: 0, expensesEur: 2000 })
+    expect(overview.monthly[6]).toEqual({ month: 7, revenueEur: 1000, expensesEur: 0 })
+    expect(overview.monthly[8]).toEqual({ month: 9, revenueEur: 500, expensesEur: 0 })
+    expect(overview.monthly.reduce((sum, month) => sum + month.revenueEur, 0)).toBe(
+      overview.revenueEur.confirmed + overview.revenueEur.provisional
+    )
+    expect(overview.monthly.reduce((sum, month) => sum + month.expensesEur, 0)).toBe(
+      overview.expensesEur.confirmed + overview.expensesEur.provisional
+    )
     expect(overview.documentsNeedingReview).toBe(2)
     expect(overview.paymentDatesMissing).toBe(1)
     expect(overview.exchangeRatesMissing).toBe(1)
@@ -747,6 +758,32 @@ describe('computeOverview', () => {
       settings({ vatMethod: 'kleinunternehmer' })
     )
     expect(overview.revenueEur.confirmed).toBe(1190)
+  })
+
+  it('returns zero-filled months for only the selected quarter', () => {
+    const docs = [
+      makeDoc({
+        paymentDate: '2025-04-10',
+        paymentStatus: 'paid',
+        netAmountEur: 800,
+        grossAmountEur: 952
+      }),
+      makeDoc({
+        direction: 'expense',
+        paymentDate: '2025-06-20',
+        paymentStatus: 'paid',
+        netAmountEur: 300,
+        grossAmountEur: 357
+      })
+    ]
+
+    const overview = computeOverview(docs, Q2_2025, settings())
+
+    expect(overview.monthly).toEqual([
+      { month: 4, revenueEur: 800, expensesEur: 0 },
+      { month: 5, revenueEur: 0, expensesEur: 0 },
+      { month: 6, revenueEur: 0, expensesEur: 300 }
+    ])
   })
 })
 

@@ -3,6 +3,7 @@ import {
   formatCurrencyAmount,
   formatEur,
   formatIsoDate,
+  formatMonth,
   parseDecimalInput,
   previewFilename,
   round2,
@@ -30,6 +31,18 @@ describe('formatEur', () => {
   })
   it('handles negatives', () => {
     expect(normalize(formatEur(-0.5, 'de'))).toBe('-0,50 €')
+  })
+})
+
+describe('formatMonth', () => {
+  it('formats localized short and full month names', () => {
+    expect(formatMonth(3, 'de', 'short')).toBe('Mär')
+    expect(formatMonth(3, 'en', 'long')).toBe('March')
+  })
+
+  it('rejects invalid month numbers', () => {
+    expect(formatMonth(0, 'de')).toBe('')
+    expect(formatMonth(13, 'en')).toBe('')
   })
 })
 

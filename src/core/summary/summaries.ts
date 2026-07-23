@@ -121,6 +121,15 @@ function recognizedValueOf(doc: TaxDocument, settings: AppSettings): number {
   return settings.vatMethod === 'kleinunternehmer' ? grossOf(doc) : netOf(doc)
 }
 
+function monthsInPeriod(period: TaxPeriod): number[] {
+  if (period.month !== null) return [period.month]
+  if (period.quarter !== null) {
+    const first = (period.quarter - 1) * 3 + 1
+    return [first, first + 1, first + 2]
+  }
+  return Array.from({ length: 12 }, (_, index) => index + 1)
+}
+
 /**
  * VAT period assignment mirroring recognition: invoice date governs for
  * Soll-Versteuerung, payment date (falling back to invoice date, then only
@@ -425,6 +434,12 @@ export function computeOverview(
 ): OverviewSummary {
   const revenue = emptyBreakdown()
   const expensesAcc = emptyBreakdown()
+  const monthly = new Map(
+    monthsInPeriod(period).map((month) => [
+      month,
+      { month, revenueEur: 0, expensesEur: 0 }
+    ])
+  )
   let documentsNeedingReview = 0
   let paymentDatesMissing = 0
   let exchangeRatesMissing = 0
@@ -464,6 +479,14 @@ export function computeOverview(
     const bucket = demote(baseBucket, recognition.definitive)
     const value = recognizedValueOf(doc, settings)
     addAmount(doc.direction === 'income' ? revenue : expensesAcc, bucket, value, doc.id)
+    if (bucket !== 'excluded') {
+      const month = Number(recognition.recognitionDate!.slice(5, 7))
+      const monthSummary = monthly.get(month)
+      if (monthSummary) {
+        if (doc.direction === 'income') monthSummary.revenueEur += value
+        else monthSummary.expensesEur += value
+      }
+    }
   }
 
   const vatSummary = computeVatSummary(documents, period, settings)
@@ -473,6 +496,11 @@ export function computeOverview(
     period,
     revenueEur: finalize(revenue),
     expensesEur: finalize(expensesAcc),
+    monthly: [...monthly.values()].map((entry) => ({
+      month: entry.month,
+      revenueEur: roundMoney(entry.revenueEur),
+      expensesEur: roundMoney(entry.expensesEur)
+    })),
     profitEur: roundMoney(
       revenue.confirmed +
         revenue.provisional -

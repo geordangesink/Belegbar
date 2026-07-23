@@ -49,6 +49,17 @@ export function formatNumber(value: number, lang: ActiveLanguage, digits = 2): s
   }).format(value)
 }
 
+export function formatMonth(
+  month: number,
+  lang: ActiveLanguage,
+  width: 'short' | 'long' = 'long'
+): string {
+  if (!Number.isInteger(month) || month < 1 || month > 12) return ''
+  return new Intl.DateTimeFormat(intlLocale(lang), { month: width }).format(
+    new Date(2020, month - 1, 1)
+  )
+}
+
 /** Formats an ISO YYYY-MM-DD date; returns the input when not parseable. */
 export function formatIsoDate(iso: string | null | undefined, lang: ActiveLanguage): string {
   if (!iso) return ''

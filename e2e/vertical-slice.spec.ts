@@ -231,6 +231,10 @@ test.describe.serial('vertical slice', () => {
     const totalRevenue =
       overview.revenueEur.confirmed + overview.revenueEur.provisional
     expect(totalRevenue).toBeGreaterThan(0)
+    expect(overview.monthly).toHaveLength(12)
+    expect(overview.monthly.reduce((sum, month) => sum + month.revenueEur, 0)).toBe(
+      totalRevenue
+    )
 
     const vat = await page.evaluate(
       async (y) => window.belegbar.getVatSummary({ year: y, quarter: null, month: null }),

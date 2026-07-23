@@ -10,6 +10,7 @@ import { useRouter } from '../context/RouterContext'
 import { useToast } from '../context/ToastContext'
 import { DropZone } from '../components/DropZone'
 import { DocumentRow } from '../components/DocumentRow'
+import { IncomeExpenseChart } from '../components/IncomeExpenseChart'
 import { Icon } from '../components/Icon'
 
 export function Overview(): ReactNode {
@@ -29,7 +30,7 @@ export function Overview(): ReactNode {
       try {
         const [s, docs] = await Promise.all([
           api().getOverview(period),
-          api().listDocuments({ limit: 8, sort: 'recent' })
+          api().listDocuments({ limit: 4, sort: 'recent' })
         ])
         if (cancelled) return
         setSummary(s)
@@ -150,30 +151,39 @@ export function Overview(): ReactNode {
         </section>
       ) : null}
 
-      <section className="overview-section recent-section">
-        <div className="section-heading">
-          <h2>{t('overview.recentTitle')}</h2>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => go({ name: 'documents' })}>
-            {t('overview.viewAll')} <Icon name="chevron-right" size={13} />
-          </button>
+      {summary ? (
+        <div className="overview-section overview-detail-grid">
+          <IncomeExpenseChart months={summary.monthly} year={period.year} />
+          <section className="card overview-recent-card recent-section">
+            <div className="overview-card-heading">
+              <h2>{t('overview.recentTitle')}</h2>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => go({ name: 'documents' })}
+              >
+                {t('overview.viewAll')} <Icon name="chevron-right" size={13} />
+              </button>
+            </div>
+            {recent.length === 0 ? (
+              <div className="empty-state">
+                <span>{t('documents.emptyTitle')}</span>
+              </div>
+            ) : (
+              <div className="doc-list">
+                {recent.map((doc) => (
+                  <DocumentRow
+                    key={doc.id}
+                    doc={doc}
+                    compact
+                    onOpen={(id) => push({ name: 'review', id })}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
         </div>
-        {recent.length === 0 ? (
-          <div className="card empty-state">
-            <span>{t('documents.emptyTitle')}</span>
-          </div>
-        ) : (
-          <div className="card doc-list">
-            {recent.map((doc) => (
-              <DocumentRow
-                key={doc.id}
-                doc={doc}
-                compact
-                onOpen={(id) => push({ name: 'review', id })}
-              />
-            ))}
-          </div>
-        )}
-      </section>
+      ) : null}
     </div>
   )
 }

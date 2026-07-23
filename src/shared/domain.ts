@@ -425,10 +425,17 @@ export interface IncomeTaxEstimate {
   projectionFactor: number
 }
 
+export interface OverviewMonthSummary {
+  month: number
+  revenueEur: number
+  expensesEur: number
+}
+
 export interface OverviewSummary {
   period: TaxPeriod
   revenueEur: AmountBreakdown
   expensesEur: AmountBreakdown
+  monthly: OverviewMonthSummary[]
   profitEur: number
   vatPayableEur: number
   suggestedTaxReserveEur: number
