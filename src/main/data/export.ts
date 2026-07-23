@@ -14,6 +14,7 @@ import type { AppSettings, TaxDocument, TaxPeriod } from '@shared/domain'
 import type { ExportResult } from '@shared/api'
 import { dataPaths, resolveInside } from '../storage/paths'
 import type { Logger } from '../log'
+import { localIsoDate } from '@core/period/period'
 
 export const ESTIMATE_LABEL_EN = 'Estimate — not an official filing'
 export const ESTIMATE_LABEL_DE = 'Schätzung — keine offizielle Steuererklärung'
@@ -87,10 +88,16 @@ function eur(value: number): string {
 export function buildSummaryText(
   docs: TaxDocument[],
   period: TaxPeriod,
-  settings: AppSettings
+  settings: AppSettings,
+  asOfDate = localIsoDate()
 ): string {
   const vat = computeVatSummary(docs, period, settings)
-  const tax = computeIncomeTaxEstimate(docs, period.year, settings)
+  const tax = computeIncomeTaxEstimate(
+    docs,
+    period.year,
+    settings,
+    asOfDate
+  )
   const lines: string[] = []
   lines.push('BELEGBAR — ' + periodSlug(period))
   lines.push('='.repeat(60))
@@ -112,12 +119,21 @@ export function buildSummaryText(
   lines.push('--- Einkommensteuer (Schätzung) / Income tax (estimate) ---')
   lines.push(`Jahr / Year: ${tax.year} (engine ${tax.engineVersion})`)
   lines.push(
-    `Einnahmen / Income: confirmed ${eur(tax.recognizedIncome.confirmed)}, provisional ${eur(tax.recognizedIncome.provisional)}`
+    `${tax.isAnnualized ? 'Bisher erfasste Einnahmen / Recorded income to date' : 'Einnahmen / Income'}: confirmed ${eur(tax.recognizedIncome.confirmed)}, provisional ${eur(tax.recognizedIncome.provisional)}`
   )
   lines.push(
-    `Ausgaben / Expenses: confirmed ${eur(tax.recognizedExpenses.confirmed)}, provisional ${eur(tax.recognizedExpenses.provisional)}`
+    `${tax.isAnnualized ? 'Bisher erfasste Ausgaben / Recorded expenses to date' : 'Ausgaben / Expenses'}: confirmed ${eur(tax.recognizedExpenses.confirmed)}, provisional ${eur(tax.recognizedExpenses.provisional)}`
   )
-  lines.push(`Betrieblicher Gewinn vor persönlichen Steuern / Business profit before personal taxes: ${eur(tax.estimatedProfit)}`)
+  if (tax.isAnnualized) {
+    lines.push(
+      `Bisher erfasster Gewinn / Recorded profit to date: ${eur(tax.recordedProfitToDate)}`
+    )
+    lines.push(
+      `Hochrechnung Gesamtjahr / Projected full-year profit: ${eur(tax.estimatedProfit)} (${tax.projectionMonths} month(s), factor ${tax.projectionFactor.toFixed(2)})`
+    )
+  } else {
+    lines.push(`Betrieblicher Gewinn vor persönlichen Steuern / Business profit before personal taxes: ${eur(tax.estimatedProfit)}`)
+  }
   lines.push(
     `Geschätztes zu versteuerndes Einkommen / Est. taxable income: ${eur(tax.estimatedTaxableIncome)}`
   )

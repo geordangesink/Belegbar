@@ -265,8 +265,10 @@ test.describe.serial('vertical slice', () => {
     await page.getByRole('tab', { name: 'Income tax' }).click()
 
     const calculation = page.locator('.income-calc-card')
-    await expect(calculation).toContainText('Business profit (before personal taxes)')
-    await expect(calculation).toContainText('Taxable income (estimated tax base)')
+    await expect(calculation).toContainText('Whole-year forecast')
+    await expect(calculation).toContainText('Projected business profit (whole year)')
+    await expect(calculation).toContainText('Projected taxable income (whole year)')
+    await expect(calculation).toContainText('Suggested reserve for the whole year')
     await expect(calculation).toContainText('Solidarity surcharge')
     await expect(calculation).not.toContainText('Church tax')
     await expect(calculation).not.toContainText('Prepayments')

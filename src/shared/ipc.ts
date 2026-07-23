@@ -23,6 +23,7 @@ export const IPC = {
   setDirection: 'belegbar:set-direction',
   setVatTreatment: 'belegbar:set-vat-treatment',
   reExtractDocuments: 'belegbar:re-extract-documents',
+  mergeDocuments: 'belegbar:merge-documents',
   deleteDocument: 'belegbar:delete-document',
   deleteDocuments: 'belegbar:delete-documents',
   emptyTrash: 'belegbar:empty-trash',
@@ -62,9 +63,7 @@ export type IpcChannel = (typeof IPC)[keyof typeof IPC]
 // ---------------------------------------------------------------------------
 
 export const directionSchema = z.enum(['income', 'expense'])
-export const isoDateSchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD')
+export const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD')
 
 export const importFilesSchema = z.object({
   direction: directionSchema,
@@ -191,6 +190,11 @@ export const exportPeriodSchema = z.object({
 
 export const reExtractSchema = z.object({
   ids: z.array(z.string().uuid()).min(1).max(500)
+})
+
+export const mergeDocumentsSchema = z.object({
+  primaryId: z.string().uuid(),
+  sourceIds: z.array(z.string().uuid()).min(1).max(50)
 })
 
 export const runLlmCheckSchema = z.object({

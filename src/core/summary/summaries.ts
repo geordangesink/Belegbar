@@ -158,6 +158,7 @@ export function computeVatSummary(
   const euReverseChargeRevenue = emptyBreakdown()
   const thirdCountryNonTaxableRevenue = emptyBreakdown()
   const taxExemptRevenue = emptyBreakdown()
+  let documentsNeedingReview = 0
   let revenueNeedingReview = 0
   let expensesNeedingReview = 0
 
@@ -167,6 +168,7 @@ export function computeVatSummary(
     const assignment = vatAssignment(doc, settings)
     if (assignment.date === null || !dateInPeriod(assignment.date, period)) continue
     const bucket = demote(baseBucket, assignment.definitive)
+    if (baseBucket === 'provisional') documentsNeedingReview += 1
 
     if (doc.direction === 'income') {
       switch (doc.vatTreatmentCode) {
@@ -194,7 +196,7 @@ export function computeVatSummary(
         default:
           break
       }
-      if (bucket === 'provisional') revenueNeedingReview += grossOf(doc)
+      if (baseBucket === 'provisional') revenueNeedingReview += grossOf(doc)
     } else {
       switch (doc.vatTreatmentCode) {
         case 'DE_EXPENSE_INPUT_VAT':
@@ -215,7 +217,7 @@ export function computeVatSummary(
         default:
           break
       }
-      if (bucket === 'provisional') expensesNeedingReview += grossOf(doc)
+      if (baseBucket === 'provisional') expensesNeedingReview += grossOf(doc)
     }
   }
 
@@ -241,6 +243,7 @@ export function computeVatSummary(
     euReverseChargeRevenue: finalize(euReverseChargeRevenue),
     thirdCountryNonTaxableRevenue: finalize(thirdCountryNonTaxableRevenue),
     taxExemptRevenue: finalize(taxExemptRevenue),
+    documentsNeedingReview,
     revenueNeedingReview: roundMoney(revenueNeedingReview),
     expensesNeedingReview: roundMoney(expensesNeedingReview)
   }
@@ -249,9 +252,18 @@ export function computeVatSummary(
 export function computeIncomeTaxEstimate(
   documents: TaxDocument[],
   year: number,
-  settings: AppSettings
+  settings: AppSettings,
+  asOfDate?: string
 ): IncomeTaxEstimate {
   const period: TaxPeriod = { year, quarter: null, month: null }
+  const effectiveAsOfDate = asOfDate ?? `${year}-12-31`
+  const asOfYear = Number(effectiveAsOfDate.slice(0, 4))
+  const projectionMonths =
+    year === asOfYear
+      ? Math.min(12, Math.max(1, Number(effectiveAsOfDate.slice(5, 7))))
+      : 12
+  const isAnnualized = asOfDate !== undefined && year === asOfYear
+  const projectionFactor = isAnnualized ? 12 / projectionMonths : 1
   const income = emptyBreakdown()
   const expenses = emptyBreakdown()
   let paymentDatesMissing = 0
@@ -276,6 +288,7 @@ export function computeIncomeTaxEstimate(
       continue
     }
     if (!dateInPeriod(recognition.recognitionDate, period)) continue
+    if (isAnnualized && recognition.recognitionDate > effectiveAsOfDate) continue
 
     const bucket = demote(baseBucket, recognition.definitive)
     const value = recognizedValueOf(doc, settings)
@@ -288,9 +301,10 @@ export function computeIncomeTaxEstimate(
     }
   }
 
-  const estimatedProfit = roundMoney(
+  const recordedProfitToDate = roundMoney(
     income.confirmed + income.provisional - expenses.confirmed - expenses.provisional
   )
+  const estimatedProfit = roundMoney(recordedProfitToDate * projectionFactor)
   const estimatedTaxableIncome = Math.max(
     0,
     roundMoney(
@@ -371,16 +385,19 @@ export function computeIncomeTaxEstimate(
     )
   }
 
-  const isEstimateOnly = !(
-    settings.incomeTaxMethod !== 'unsure' &&
-    provisionalCount === 0 &&
-    incompleteItems.length === 0
-  )
+  const isEstimateOnly =
+    isAnnualized ||
+    !(
+      settings.incomeTaxMethod !== 'unsure' &&
+      provisionalCount === 0 &&
+      incompleteItems.length === 0
+    )
 
   return {
     year,
     recognizedIncome: finalize(income),
     recognizedExpenses: finalize(expenses),
+    recordedProfitToDate,
     estimatedProfit,
     otherTaxableIncome: roundMoney(settings.otherTaxableIncome),
     deductibleContributions: roundMoney(settings.deductibleContributions),
@@ -393,14 +410,18 @@ export function computeIncomeTaxEstimate(
     engineVersion: taxResult.engineVersion,
     assumptions,
     incompleteItems,
-    isEstimateOnly
+    isEstimateOnly,
+    isAnnualized,
+    projectionMonths,
+    projectionFactor
   }
 }
 
 export function computeOverview(
   documents: TaxDocument[],
   period: TaxPeriod,
-  settings: AppSettings
+  settings: AppSettings,
+  asOfDate?: string
 ): OverviewSummary {
   const revenue = emptyBreakdown()
   const expensesAcc = emptyBreakdown()
@@ -446,7 +467,7 @@ export function computeOverview(
   }
 
   const vatSummary = computeVatSummary(documents, period, settings)
-  const taxEstimate = computeIncomeTaxEstimate(documents, period.year, settings)
+  const taxEstimate = computeIncomeTaxEstimate(documents, period.year, settings, asOfDate)
 
   return {
     period,

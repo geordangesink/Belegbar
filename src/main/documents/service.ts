@@ -4,18 +4,12 @@
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
-import {
-  classifyVat,
-  isVatTreatmentApplicable,
-  listVatTreatments
-} from '@core/vat/classify'
+import { PDFDocument } from 'pdf-lib'
+import { classifyVat, isVatTreatmentApplicable, listVatTreatments } from '@core/vat/classify'
 import { generateStoredFilename, withCollisionSuffix } from '@core/files/filename'
 import { periodOfIsoDate } from '@core/period/period'
 import { convertToEur, isIsoCurrency, type ExchangeRateResult } from '@core/currency/convert'
-import {
-  canonicalDocumentField,
-  confidenceKeysForField
-} from '@core/review/fields'
+import { canonicalDocumentField, confidenceKeysForField } from '@core/review/fields'
 import type {
   DeleteDocumentsResult,
   DocumentDirection,
@@ -33,7 +27,8 @@ import {
   atomicMove,
   copyAndVerify,
   copyAndVerifyReplacing,
-  moveToTrash
+  moveToTrash,
+  sha256File
 } from '../storage/files'
 
 const FILENAME_RELEVANT_FIELDS: (keyof UpdateDocumentPayload['patch'])[] = [
@@ -45,16 +40,11 @@ const FILENAME_RELEVANT_FIELDS: (keyof UpdateDocumentPayload['patch'])[] = [
 ]
 
 type DocumentCopiesDestination =
-  | { kind: 'file'; path: string }
-  | { kind: 'directory'; path: string }
+  { kind: 'file'; path: string } | { kind: 'directory'; path: string }
 
 const COPY_COLLISION_ATTEMPTS = 10_000
 
-function issue(
-  code: string,
-  severity: DocumentIssue['severity'],
-  field?: string
-): DocumentIssue {
+function issue(code: string, severity: DocumentIssue['severity'], field?: string): DocumentIssue {
   return { code, severity, messageKey: `issues.${code}`, field }
 }
 
@@ -79,7 +69,10 @@ function signalsFromRaw(raw: unknown): ExtractedInvoiceData['signals'] {
   if (raw && typeof raw === 'object' && 'signals' in raw) {
     const s = (raw as { signals?: unknown }).signals
     if (s && typeof s === 'object') {
-      return { ...DEFAULT_SIGNALS, ...(s as Partial<ExtractedInvoiceData['signals']>) }
+      return {
+        ...DEFAULT_SIGNALS,
+        ...(s as Partial<ExtractedInvoiceData['signals']>)
+      }
     }
   }
   return DEFAULT_SIGNALS
@@ -96,11 +89,7 @@ function safeIsIsoCurrency(code: string): boolean {
 /** Is this issue resolved by the document's current field values? */
 export function isIssueResolved(docIssue: DocumentIssue, doc: TaxDocument): boolean {
   const code = docIssue.code
-  if (
-    code === 'conflicting_totals' ||
-    code.includes('inconsistent') ||
-    code.includes('mismatch')
-  ) {
+  if (code === 'conflicting_totals' || code.includes('inconsistent') || code.includes('mismatch')) {
     const { netAmountOriginal: net, vatAmountOriginal: vat, grossAmountOriginal: gross } = doc
     if (net === null || vat === null || gross === null) return true
     return Math.abs(net + vat - gross) <= 0.02
@@ -182,12 +171,7 @@ export function syncCoreIssues(doc: TaxDocument): TaxDocument {
     ensure('missing_exchange_rate', 'exchangeRateToEur')
   }
   const { netAmountOriginal: net, vatAmountOriginal: vat, grossAmountOriginal: gross } = next
-  if (
-    net !== null &&
-    vat !== null &&
-    gross !== null &&
-    Math.abs(net + vat - gross) > 0.02
-  ) {
+  if (net !== null && vat !== null && gross !== null && Math.abs(net + vat - gross) > 0.02) {
     ensure('conflicting_totals', 'grossAmount')
   }
   next.reviewReasons = [...new Set(next.issues.map((item) => item.code))]
@@ -204,8 +188,7 @@ export function invalidateFieldEvidence(
     fieldConfidence: { ...doc.fieldConfidence },
     issues: doc.issues.filter(
       (item) =>
-        item.code !== 'llm_disagreement' ||
-        !changed.has(canonicalDocumentField(item.field ?? ''))
+        item.code !== 'llm_disagreement' || !changed.has(canonicalDocumentField(item.field ?? ''))
     )
   }
   for (const field of changed) {
@@ -311,10 +294,7 @@ export class DocumentService {
       }
     } else if (currency !== null && safeIsIsoCurrency(currency)) {
       // offline-safe: cached rates only, no network during an edit
-      const cached = this.deps.repos.exchangeRates.find(
-        currency,
-        next.invoiceDate ?? todayIso()
-      )
+      const cached = this.deps.repos.exchangeRates.find(currency, next.invoiceDate ?? todayIso())
       if (cached) {
         rate = { ...cached }
         next.exchangeRateToEur = cached.rateToEur
@@ -386,10 +366,7 @@ export class DocumentService {
           storedRelativePath: doc.storedRelativePath
         }
         next.storedFilename = filename
-        next.storedRelativePath = path
-          .join(relDir, filename)
-          .split(path.sep)
-          .join('/')
+        next.storedRelativePath = path.join(relDir, filename).split(path.sep).join('/')
         next.issues = next.issues.filter((i) => i.code !== 'rename_failed')
         this.deps.repos.audit.append({
           documentId: doc.id,
@@ -450,9 +427,9 @@ export class DocumentService {
     // re-derive everything that depends on the edited fields — but a VAT
     // treatment the user picked explicitly stays until they change it or
     // the document switches direction
-    const stored = doc.extractionRawJson as
-      | { vatClassification?: { manualOverride?: boolean } }
-      | null
+    const stored = doc.extractionRawJson as {
+      vatClassification?: { manualOverride?: boolean }
+    } | null
     const hasManualOverride = stored?.vatClassification?.manualOverride === true
     let classification: VatClassificationResult | undefined
     if (!hasManualOverride) {
@@ -467,9 +444,8 @@ export class DocumentService {
     next = syncCoreIssues(next)
 
     const filenameRelevant =
-      changedFields.some((f) =>
-        (FILENAME_RELEVANT_FIELDS as string[]).includes(f)
-      ) || next.invoiceDate !== doc.invoiceDate
+      changedFields.some((f) => (FILENAME_RELEVANT_FIELDS as string[]).includes(f)) ||
+      next.invoiceDate !== doc.invoiceDate
     if (filenameRelevant) {
       const company = next.direction === 'income' ? next.recipientName : next.issuerName
       const generated = generateStoredFilename({
@@ -549,7 +525,10 @@ export class DocumentService {
       this.deps.repos.audit.append({
         documentId: id,
         eventType: 'payment_date_change',
-        previousValue: { paymentDate: doc.paymentDate, paymentStatus: doc.paymentStatus },
+        previousValue: {
+          paymentDate: doc.paymentDate,
+          paymentStatus: doc.paymentStatus
+        },
         nextValue: { paymentDate, paymentStatus },
         source: 'user'
       })
@@ -606,7 +585,10 @@ export class DocumentService {
       nextValue: { code: treatment.code, reason: reason ?? null },
       source: 'user'
     })
-    return this.deps.repos.documents.update(next, { ...treatment, manualOverride: true })
+    return this.deps.repos.documents.update(next, {
+      ...treatment,
+      manualOverride: true
+    })
   }
 
   async delete(id: string, mode: 'trash' | 'hard'): Promise<void> {
@@ -620,7 +602,10 @@ export class DocumentService {
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('trash_failed')
       }
-      this.deps.repos.documents.update({ ...doc, deletedAt: new Date().toISOString() })
+      this.deps.repos.documents.update({
+        ...doc,
+        deletedAt: new Date().toISOString()
+      })
       this.deps.repos.audit.append({
         documentId: id,
         eventType: 'delete',
@@ -649,10 +634,80 @@ export class DocumentService {
     }
   }
 
-  async deleteMany(
-    ids: string[],
-    mode: 'trash' | 'hard'
-  ): Promise<DeleteDocumentsResult> {
+  async merge(primaryId: string, sourceIds: readonly string[]): Promise<TaxDocument> {
+    const uniqueSourceIds = [...new Set(sourceIds)].filter((id) => id !== primaryId)
+    if (uniqueSourceIds.length === 0) throw new Error('invalid_payload')
+
+    const primary = this.getOrThrow(primaryId)
+    if (primary.deletedAt) throw new Error('not_found')
+    const sources = uniqueSourceIds.map((id) => this.getOrThrow(id))
+    if (
+      sources.some((document) => document.deletedAt || document.direction !== primary.direction)
+    ) {
+      throw new Error('merge_incompatible')
+    }
+
+    const mergedPdf = await PDFDocument.create()
+    for (const document of [primary, ...sources]) {
+      let input: PDFDocument
+      try {
+        input = await PDFDocument.load(await fsp.readFile(this.absolutePathOf(document)))
+      } catch {
+        throw new Error('merge_failed')
+      }
+      const pages = await mergedPdf.copyPages(input, input.getPageIndices())
+      for (const page of pages) mergedPdf.addPage(page)
+    }
+
+    const paths = dataPaths(this.deps.dataDir)
+    const temporaryPath = path.join(paths.documentsTmp, `${primary.id}-merge.pdf`)
+    await fsp.mkdir(paths.documentsTmp, { recursive: true })
+    try {
+      await fsp.writeFile(temporaryPath, await mergedPdf.save())
+      const sha256 = await sha256File(temporaryPath)
+      await copyAndVerifyReplacing(temporaryPath, this.absolutePathOf(primary), sha256)
+
+      const sourceIdSet = new Set(uniqueSourceIds)
+      const remainingIssues = primary.issues.filter(
+        (item) =>
+          item.code !== 'duplicate_detected' &&
+          !(item.code === 'possible_duplicate' && sourceIdSet.has(String(item.params?.id ?? '')))
+      )
+      const next = this.deps.repos.documents.update({
+        ...primary,
+        sha256,
+        pageCount: mergedPdf.getPageCount(),
+        issues: remainingIssues,
+        reviewReasons: [...new Set(remainingIssues.map((item) => item.code))],
+        reviewStatus: 'needs_review',
+        userConfirmedAt: null
+      })
+
+      this.deps.repos.audit.append({
+        documentId: primary.id,
+        eventType: 'documents_merged',
+        previousValue: { sha256: primary.sha256, pageCount: primary.pageCount },
+        nextValue: {
+          sha256,
+          pageCount: mergedPdf.getPageCount(),
+          sources: sources.map((document) => ({
+            id: document.id,
+            filename: document.storedFilename,
+            sha256: document.sha256,
+            pageCount: document.pageCount
+          }))
+        },
+        source: 'user'
+      })
+
+      for (const source of sources) await this.delete(source.id, 'trash')
+      return next
+    } finally {
+      await fsp.rm(temporaryPath, { force: true })
+    }
+  }
+
+  async deleteMany(ids: string[], mode: 'trash' | 'hard'): Promise<DeleteDocumentsResult> {
     const result: DeleteDocumentsResult = { deleted: 0, skipped: 0, failed: 0 }
     for (const id of new Set(ids)) {
       const doc = this.deps.repos.documents.getById(id)
@@ -722,8 +777,7 @@ export class DocumentService {
         this.deps.log.warn('document_copy_failed', {
           documentId: id,
           code:
-            (err as NodeJS.ErrnoException).code ??
-            (err instanceof Error ? err.message : 'unknown')
+            (err as NodeJS.ErrnoException).code ?? (err instanceof Error ? err.message : 'unknown')
         })
       }
     }

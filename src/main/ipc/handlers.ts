@@ -15,6 +15,7 @@ import {
   exportPeriodSchema,
   importFilesSchema,
   listDocumentsSchema,
+  mergeDocumentsSchema,
   periodSchema,
   reExtractSchema,
   runLlmCheckSchema,
@@ -43,6 +44,7 @@ import type { Logger } from '../log'
 import { createBackup, restoreBackup } from '../data/backup'
 import { exportPeriod } from '../data/export'
 import { dataPaths } from '../storage/paths'
+import { localIsoDate } from '@core/period/period'
 
 const retryImportSchema = z.object({ fileId: z.string().min(1) })
 const dismissImportSchema = z.object({ importId: z.string().min(1) })
@@ -112,9 +114,7 @@ export function registerIpcHandlers(ctx: HandlerContext): void {
 
   // -- documents ------------------------------------------------------------
 
-  handle(IPC.listDocuments, listDocumentsSchema, (filter) =>
-    ctx.repos.documents.list(filter)
-  )
+  handle(IPC.listDocuments, listDocumentsSchema, (filter) => ctx.repos.documents.list(filter))
   handle(IPC.getDocument, documentIdSchema, (p) => ctx.repos.documents.getById(p.id))
   handle(IPC.updateDocument, updateDocumentSchema, (p) => ctx.documents.update(p))
   handle(IPC.confirmDocument, documentIdSchema, (p) => ctx.documents.confirm(p.id))
@@ -128,10 +128,11 @@ export function registerIpcHandlers(ctx: HandlerContext): void {
     ctx.documents.setVatTreatment(p.id, p.code, p.reason)
   )
   handle(IPC.reExtractDocuments, reExtractSchema, (p) => ctx.pipeline.reExtract(p.ids))
-  handle(IPC.deleteDocument, deleteDocumentSchema, (p) => ctx.documents.delete(p.id, p.mode))
-  handle(IPC.deleteDocuments, deleteDocumentsSchema, (p) =>
-    ctx.documents.deleteMany(p.ids, p.mode)
+  handle(IPC.mergeDocuments, mergeDocumentsSchema, (p) =>
+    ctx.documents.merge(p.primaryId, p.sourceIds)
   )
+  handle(IPC.deleteDocument, deleteDocumentSchema, (p) => ctx.documents.delete(p.id, p.mode))
+  handle(IPC.deleteDocuments, deleteDocumentsSchema, (p) => ctx.documents.deleteMany(p.ids, p.mode))
   handle(IPC.emptyTrash, null, () => ctx.documents.emptyTrash())
   handle(IPC.restoreDocument, documentIdSchema, (p) => ctx.documents.restore(p.id))
   handle(IPC.saveDocumentCopies, saveDocumentCopiesSchema, async (p) => {
@@ -146,8 +147,7 @@ export function registerIpcHandlers(ctx: HandlerContext): void {
         defaultPath: path.join(defaultDirectory, path.basename(document.storedFilename)),
         filters: [{ name: 'PDF', extensions: ['pdf'] }],
         properties: ['createDirectory', 'showOverwriteConfirmation'] as (
-          | 'createDirectory'
-          | 'showOverwriteConfirmation'
+          'createDirectory' | 'showOverwriteConfirmation'
         )[]
       }
       const picked = window
@@ -172,10 +172,7 @@ export function registerIpcHandlers(ctx: HandlerContext): void {
     }
     const options = {
       defaultPath: defaultDirectory,
-      properties: ['openDirectory', 'createDirectory'] as (
-        | 'openDirectory'
-        | 'createDirectory'
-      )[]
+      properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[]
     }
     const picked = window
       ? await dialog.showOpenDialog(window, options)
@@ -214,7 +211,12 @@ export function registerIpcHandlers(ctx: HandlerContext): void {
   // -- summaries ------------------------------------------------------------
 
   handle(IPC.getOverview, periodSchema, (period) =>
-    computeOverview(ctx.repos.documents.listAllActive(), period, ctx.repos.settings.get())
+    computeOverview(
+      ctx.repos.documents.listAllActive(),
+      period,
+      ctx.repos.settings.get(),
+      localIsoDate()
+    )
   )
   handle(IPC.getVatSummary, periodSchema, (period) =>
     computeVatSummary(ctx.repos.documents.listAllActive(), period, ctx.repos.settings.get())
@@ -223,7 +225,8 @@ export function registerIpcHandlers(ctx: HandlerContext): void {
     computeIncomeTaxEstimate(
       ctx.repos.documents.listAllActive(),
       p.year,
-      ctx.repos.settings.get()
+      ctx.repos.settings.get(),
+      localIsoDate()
     )
   )
 
@@ -273,7 +276,11 @@ export function registerIpcHandlers(ctx: HandlerContext): void {
     }
     const zipPath = picked.filePaths[0]!
     await ctx.prepareForRestore() // closes DB + stops workers
-    const result = await restoreBackup({ dataDir: ctx.dataDir, zipPath, log: ctx.log })
+    const result = await restoreBackup({
+      dataDir: ctx.dataDir,
+      zipPath,
+      log: ctx.log
+    })
     // relaunch either way: on success to load the restored data, on failure
     // to reopen the (untouched) current data with a fresh DB handle.
     // Give the IPC response time to reach the renderer first.

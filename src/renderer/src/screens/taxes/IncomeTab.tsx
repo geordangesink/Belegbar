@@ -4,7 +4,7 @@ import type { IncomeTaxEstimate } from '@shared/domain'
 import { api, errorToKey } from '../../lib/api'
 import { useDataVersion } from '../../lib/bus'
 import { activeLanguage } from '../../i18n'
-import { formatEur } from '../../lib/format'
+import { formatEur, formatNumber } from '../../lib/format'
 import { usePeriod } from '../../context/PeriodContext'
 import { useSettings } from '../../context/SettingsContext'
 import { useToast } from '../../context/ToastContext'
@@ -61,9 +61,25 @@ export function IncomeTab(): ReactNode {
   }
 
   const rows: { label: string; value: number; strong?: boolean }[] = [
-    { label: t('taxes.estProfit'), value: estimate.estimatedProfit },
-    { label: t('taxes.estTaxableIncome'), value: estimate.estimatedTaxableIncome },
-    { label: t('taxes.estIncomeTax'), value: estimate.estimatedIncomeTax },
+    ...(estimate.isAnnualized
+      ? [{ label: t('taxes.estActualProfit', { months: estimate.projectionMonths }), value: estimate.recordedProfitToDate }]
+      : []),
+    {
+      label: t(estimate.isAnnualized ? 'taxes.estProjectedProfit' : 'taxes.estProfit'),
+      value: estimate.estimatedProfit
+    },
+    {
+      label: t(
+        estimate.isAnnualized
+          ? 'taxes.estProjectedTaxableIncome'
+          : 'taxes.estTaxableIncome'
+      ),
+      value: estimate.estimatedTaxableIncome
+    },
+    {
+      label: t(estimate.isAnnualized ? 'taxes.estProjectedIncomeTax' : 'taxes.estIncomeTax'),
+      value: estimate.estimatedIncomeTax
+    },
     ...(settings.includeSolidaritySurcharge
       ? [{ label: t('taxes.estSoli'), value: estimate.solidaritySurcharge }]
       : []),
@@ -73,7 +89,11 @@ export function IncomeTab(): ReactNode {
     ...(estimate.prepayments !== 0
       ? [{ label: t('taxes.estPrepayments'), value: estimate.prepayments }]
       : []),
-    { label: t('taxes.estReserve'), value: estimate.suggestedReserve, strong: true }
+    {
+      label: t(estimate.isAnnualized ? 'taxes.estProjectedReserve' : 'taxes.estReserve'),
+      value: estimate.suggestedReserve,
+      strong: true
+    }
   ]
 
   const notes = [...estimate.assumptions, ...estimate.incompleteItems]
@@ -85,6 +105,18 @@ export function IncomeTab(): ReactNode {
   return (
     <div>
       <div className="card calc-card income-calc-card" data-tour="taxes-income">
+        {estimate.isAnnualized ? (
+          <div className="inline-note info" role="note">
+            <span aria-hidden="true">↗</span>
+            <span>
+              {t('taxes.estProjectionNotice', {
+                year: estimate.year,
+                months: estimate.projectionMonths,
+                factor: formatNumber(estimate.projectionFactor, lang)
+              })}
+            </span>
+          </div>
+        ) : null}
         <table className="calc-table">
           <tbody>
             {rows.map((row) => (
@@ -130,7 +162,13 @@ export function IncomeTab(): ReactNode {
               <h3>{t('taxes.estBridgeTitle')}</h3>
               <div className="tax-bridge">
                 <div>
-                  <span>{t('taxes.estBridgeProfit')}</span>
+                  <span>
+                    {t(
+                      estimate.isAnnualized
+                        ? 'taxes.estBridgeProjectedProfit'
+                        : 'taxes.estBridgeProfit'
+                    )}
+                  </span>
                   <strong>{formatEur(estimate.estimatedProfit, lang)}</strong>
                 </div>
                 <div>

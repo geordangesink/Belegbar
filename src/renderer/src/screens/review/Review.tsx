@@ -9,10 +9,7 @@ import { activeLanguage } from '../../i18n'
 import { useRouter } from '../../context/RouterContext'
 import { useSettings } from '../../context/SettingsContext'
 import { useToast } from '../../context/ToastContext'
-import {
-  attentionAnalysisForDocument,
-  issueAttentionForDocument
-} from '@core/review/attention'
+import { attentionAnalysisForDocument, issueAttentionForDocument } from '@core/review/attention'
 import { canonicalDocumentField } from '@core/review/fields'
 import { AttentionBadge } from '../../components/AttentionBadge'
 import { ConfirmDialog } from '../../components/Dialog'
@@ -27,7 +24,7 @@ import { issueMessageKey } from '../../lib/api'
 
 export function Review({ id }: { id: string }): ReactNode {
   const { t } = useTranslation()
-  const { back, canGoBack, go } = useRouter()
+  const { back, canGoBack, go, push } = useRouter()
   const { settings } = useSettings()
   const toast = useToast()
 
@@ -39,6 +36,8 @@ export function Review({ id }: { id: string }): ReactNode {
   const [savingCopy, setSavingCopy] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [mergeTargetId, setMergeTargetId] = useState<string | null>(null)
+  const [merging, setMerging] = useState(false)
   const actionsMenuRef = useRef<HTMLDetailsElement>(null)
 
   const closeActionsMenu = (): void => actionsMenuRef.current?.removeAttribute('open')
@@ -106,37 +105,29 @@ export function Review({ id }: { id: string }): ReactNode {
   )
 
   const dirty = Object.keys(patch).length > 0
-  const attention = useMemo(
-    () => (doc ? attentionAnalysisForDocument(doc) : null),
-    [doc]
-  )
+  const attention = useMemo(() => (doc ? attentionAnalysisForDocument(doc) : null), [doc])
   const fieldAttention = useMemo(() => {
     const fields = { ...(attention?.fields ?? {}) }
     for (const field of Object.keys(patch)) delete fields[canonicalDocumentField(field)]
     return fields
   }, [attention, patch])
-  const visibleIssues = useMemo(
-    () => {
-      if (!doc) return []
-      const seen = new Set<string>()
-      return doc.issues.filter((issue) => {
-        const field = canonicalDocumentField(
-          (issue.params?.field as string | undefined) ?? issue.field ?? ''
-        )
-        const key = `${issue.code}:${field}`
-        if (
-          field in patch ||
-          issueAttentionForDocument(issue, doc) === null ||
-          seen.has(key)
-        ) {
-          return false
-        }
-        seen.add(key)
-        return true
-      })
-    },
-    [doc, patch]
-  )
+  const visibleIssues = useMemo(() => {
+    if (!doc) return []
+    const seen = new Set<string>()
+    return doc.issues.filter((issue) => {
+      const field = canonicalDocumentField(
+        (issue.params?.field as string | undefined) ?? issue.field ?? ''
+      )
+        const duplicateId =
+          issue.code === 'possible_duplicate' ? String(issue.params?.id ?? '') : ''
+        const key = `${issue.code}:${field}:${duplicateId}`
+      if (field in patch || issueAttentionForDocument(issue, doc) === null || seen.has(key)) {
+        return false
+      }
+      seen.add(key)
+      return true
+    })
+  }, [doc, patch])
 
   // The invoice number is only an essential while something is off about it:
   // an open issue or a shaky extraction. Otherwise it lives in "More details".
@@ -255,6 +246,25 @@ export function Review({ id }: { id: string }): ReactNode {
     }
   }
 
+  const mergeDuplicate = async (): Promise<void> => {
+    if (!doc || !mergeTargetId) return
+    setMerging(true)
+    try {
+      const merged = await api().mergeDocuments({
+        primaryId: doc.id,
+        sourceIds: [mergeTargetId]
+      })
+      setDoc(merged)
+      setMergeTargetId(null)
+      toast.success(t('review.mergeSuccess'))
+      emitDataChanged()
+    } catch (err) {
+      toast.error(t(errorToKey(err)))
+    } finally {
+      setMerging(false)
+    }
+  }
+
   /**
    * Issue params for t(): for llm_disagreement the raw field name is replaced
    * with the translated review.* label where one exists.
@@ -263,9 +273,7 @@ export function Review({ id }: { id: string }): ReactNode {
     const params: Record<string, string | number> = { ...issue.params }
     if (issue.code === 'llm_disagreement') {
       const rawField =
-        typeof params.field === 'string' && params.field !== ''
-          ? params.field
-          : (issue.field ?? '')
+        typeof params.field === 'string' && params.field !== '' ? params.field : (issue.field ?? '')
       const labelKey = llmFieldLabelKey(rawField)
       params.field = labelKey ? t(labelKey) : rawField
       if (typeof params.suggested !== 'string' && typeof params.suggested !== 'number') {
@@ -280,7 +288,11 @@ export function Review({ id }: { id: string }): ReactNode {
       <div className="content-inner">
         <div className="empty-state">
           <p>{t('review.notFound')}</p>
-          <button type="button" className="btn mt-16" onClick={() => (canGoBack ? back() : go({ name: 'documents' }))}>
+          <button
+            type="button"
+            className="btn mt-16"
+            onClick={() => (canGoBack ? back() : go({ name: 'documents' }))}
+          >
             <Icon name="back" size={14} /> {t('review.backToList')}
           </button>
         </div>
@@ -297,7 +309,11 @@ export function Review({ id }: { id: string }): ReactNode {
             <strong>{t('review.loadFailedTitle')}</strong>
             <span>{t('review.loadFailedBody')}</span>
             <div className="row mt-16">
-              <button type="button" className="btn" onClick={() => (canGoBack ? back() : go({ name: 'documents' }))}>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => (canGoBack ? back() : go({ name: 'documents' }))}
+              >
                 <Icon name="back" size={14} /> {t('review.backToList')}
               </button>
               <button type="button" className="btn btn-primary" onClick={() => void refetch()}>
@@ -342,8 +358,9 @@ export function Review({ id }: { id: string }): ReactNode {
   const uncertainFields = Object.keys(fieldAttention).sort((a, b) => {
     const aIndex = fieldOrder.indexOf(a)
     const bIndex = fieldOrder.indexOf(b)
-    return (aIndex === -1 ? fieldOrder.length : aIndex) -
-      (bIndex === -1 ? fieldOrder.length : bIndex)
+    return (
+      (aIndex === -1 ? fieldOrder.length : aIndex) - (bIndex === -1 ? fieldOrder.length : bIndex)
+    )
   })
   const fieldLabel = (field: string): string => {
     const key = reviewFieldLabelKey(field)
@@ -369,9 +386,7 @@ export function Review({ id }: { id: string }): ReactNode {
     typeof invoiceDate === 'string' && invoiceDate !== ''
       ? formatIsoDate(invoiceDate, activeLanguage())
       : null,
-    typeof invoiceNumber === 'string' && invoiceNumber.trim() !== ''
-      ? `#${invoiceNumber}`
-      : null
+    typeof invoiceNumber === 'string' && invoiceNumber.trim() !== '' ? `#${invoiceNumber}` : null
   ].filter((value): value is string => value !== null)
   const inTrash = doc.deletedAt !== null
   const canReExtract = !inTrash && doc.reviewStatus !== 'confirmed'
@@ -418,7 +433,11 @@ export function Review({ id }: { id: string }): ReactNode {
                 <Icon name="trash" size={14} />
               </button>
             ) : null}
-            <details ref={actionsMenuRef} className="review-actions-menu" data-tour="review-recheck">
+            <details
+              ref={actionsMenuRef}
+              className="review-actions-menu"
+              data-tour="review-recheck"
+            >
               <summary
                 className="icon-btn"
                 aria-label={t('review.moreActions')}
@@ -501,6 +520,10 @@ export function Review({ id }: { id: string }): ReactNode {
                 {visibleIssues.map((issue, i) => {
                   const issueLevel = issueAttentionForDocument(issue, doc)
                   const isCritical = issueLevel === 'critical'
+                  const duplicateId =
+                    issue.code === 'possible_duplicate' && typeof issue.params?.id === 'string'
+                      ? issue.params.id
+                      : null
                   return (
                     <div
                       key={`${issue.code}-${i}`}
@@ -510,9 +533,31 @@ export function Review({ id }: { id: string }): ReactNode {
                       <span>
                         {t(issueMessageKey(issue.messageKey), {
                           ...issueParams(issue),
-                          defaultValue: t(issueMessageKey(issue.code), { defaultValue: issue.code })
+                          defaultValue: t(issueMessageKey(issue.code), {
+                            defaultValue: issue.code
+                          })
                         })}
                       </span>
+                      {duplicateId ? (
+                        <span className="inline-note-actions">
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            disabled={dirty || merging}
+                            onClick={() => push({ name: 'review', id: duplicateId })}
+                          >
+                            {t('review.compareDuplicate')}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-primary"
+                            disabled={dirty || merging}
+                            onClick={() => setMergeTargetId(duplicateId)}
+                          >
+                            {t('review.mergePages')}
+                          </button>
+                        </span>
+                      ) : null}
                     </div>
                   )
                 })}
@@ -566,7 +611,9 @@ export function Review({ id }: { id: string }): ReactNode {
         <PdfViewer documentId={doc.id} />
       </div>
 
-      {historyOpen ? <AuditDrawer documentId={doc.id} onClose={() => setHistoryOpen(false)} /> : null}
+      {historyOpen ? (
+        <AuditDrawer documentId={doc.id} onClose={() => setHistoryOpen(false)} />
+      ) : null}
       {deleteOpen ? (
         <ConfirmDialog
           title={t('review.deleteTitle')}
@@ -578,6 +625,15 @@ export function Review({ id }: { id: string }): ReactNode {
             setDeleteOpen(false)
             void remove()
           }}
+        />
+      ) : null}
+      {mergeTargetId ? (
+        <ConfirmDialog
+          title={t('review.mergeTitle')}
+          body={t('review.mergeBody')}
+          confirmLabel={t('review.mergePages')}
+          onCancel={() => setMergeTargetId(null)}
+          onConfirm={() => void mergeDuplicate()}
         />
       ) : null}
     </div>

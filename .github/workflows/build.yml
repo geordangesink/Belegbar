@@ -131,11 +131,27 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Attach to GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download packaged installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: belegbar-${{ github.ref_name }}-*
+          path: release
+          merge-multiple: true
+
+      - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          draft: true
+          draft: false
+          prerelease: false
+          make_latest: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
             release/*.dmg
             release/*.exe

@@ -34,7 +34,9 @@ const KNOWN_ERROR_KEYS = new Set([
   'interrupted',
   'internal_error',
   'invalid_payload',
-  'critical_issues'
+  'critical_issues',
+  'merge_incompatible',
+  'merge_failed'
 ])
 
 /** LLM checker error codes reported by main; live under errors.* (not issues.*). */

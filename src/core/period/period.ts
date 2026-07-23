@@ -7,6 +7,13 @@
 import type { TaxPeriod } from '../../shared/domain'
 import { isValidIsoDate } from '../parsing/dates'
 
+export function localIsoDate(date = new Date()): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export function quarterOfMonth(month: number): 1 | 2 | 3 | 4 {
   if (!Number.isInteger(month) || month < 1 || month > 12) {
     throw new RangeError(`month out of range: ${month}`)

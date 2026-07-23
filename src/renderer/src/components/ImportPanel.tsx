@@ -38,9 +38,16 @@ function Row({
   // Once the document exists and processing is done, the row shows exactly
   // what the documents list shows: the badge derived from the CURRENT
   // document state (refetched on every data change / finished LLM check).
-  const attention = terminal && doc !== null ? attentionForDocument(doc) : null
+  const attention =
+    row.status === 'duplicate'
+      ? 'critical'
+      : terminal && doc !== null
+        ? attentionForDocument(doc)
+        : null
   const issueCount =
-    doc !== null
+    row.status === 'duplicate'
+      ? row.issueCount
+      : doc !== null
       ? doc.issues.filter((issue) => issueAttentionForDocument(issue, doc) !== null).length
       : row.issueCount
 

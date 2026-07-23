@@ -88,9 +88,7 @@ body,
 }
 
 body {
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Roboto, 'Helvetica Neue', Arial,
-    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Roboto, 'Helvetica Neue', Arial, sans-serif;
   font-size: 13.5px;
   line-height: 1.5;
   color: var(--text);
@@ -906,14 +904,7 @@ input[type='checkbox'] {
 }
 .progress-fill.indeterminate {
   width: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    transparent 25%,
-    var(--accent) 50%,
-    transparent 75%,
-    transparent 100%
-  );
+  background: linear-gradient(90deg, transparent 0%, transparent 25%, var(--accent) 50%, transparent 75%, transparent 100%);
   background-size: 220% 100%;
   animation: indet 1.35s linear infinite;
 }
@@ -1424,8 +1415,7 @@ html {
 /* ========================================================= premium layer */
 
 body {
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', sans-serif;
   font-size: 14px;
   line-height: 1.5;
   letter-spacing: -0.006em;
@@ -3350,6 +3340,13 @@ input[type='checkbox']:checked {
 .inline-note.info {
   color: var(--text-2);
   border-color: var(--border);
+}
+
+.inline-note-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .details-toggle {

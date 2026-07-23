@@ -40,6 +40,7 @@ const api: BelegbarApi = {
   setDirection: (payload) => ipcRenderer.invoke(IPC.setDirection, payload),
   setVatTreatment: (payload) => ipcRenderer.invoke(IPC.setVatTreatment, payload),
   reExtractDocuments: (ids) => ipcRenderer.invoke(IPC.reExtractDocuments, { ids }),
+  mergeDocuments: (payload) => ipcRenderer.invoke(IPC.mergeDocuments, payload),
   deleteDocument: (id, mode) =>
     ipcRenderer.invoke(IPC.deleteDocument, { id, mode: mode ?? 'trash' }),
   deleteDocuments: (ids, mode) =>

@@ -15,11 +15,7 @@ import type {
   TaxPeriod,
   VatSummary
 } from './domain'
-import type {
-  ImportFilesPayload,
-  UpdateDocumentPayload,
-  UpdateSettingsPayload
-} from './ipc'
+import type { ImportFilesPayload, UpdateDocumentPayload, UpdateSettingsPayload } from './ipc'
 
 export interface DocumentListResult {
   documents: TaxDocument[]
@@ -82,11 +78,9 @@ export interface BelegbarApi {
    * fields are left untouched; returns how many documents changed.
    */
   reExtractDocuments(ids: string[]): Promise<{ updated: number; skipped: number }>
+  mergeDocuments(payload: { primaryId: string; sourceIds: string[] }): Promise<TaxDocument>
   deleteDocument(id: string, mode?: 'trash' | 'hard'): Promise<void>
-  deleteDocuments(
-    ids: string[],
-    mode?: 'trash' | 'hard'
-  ): Promise<DeleteDocumentsResult>
+  deleteDocuments(ids: string[], mode?: 'trash' | 'hard'): Promise<DeleteDocumentsResult>
   emptyTrash(): Promise<DeleteDocumentsResult>
   restoreDocument(id: string): Promise<void>
   saveDocumentCopies(ids: string[]): Promise<SaveDocumentCopiesResult>

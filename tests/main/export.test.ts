@@ -14,6 +14,26 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
 }
 
 describe('income-tax summary export', () => {
+  it('labels current-year values as a projected whole year', () => {
+    const summary = buildSummaryText([], period, settings(), '2026-07-23')
+
+    expect(summary).toContain('Recorded income to date')
+    expect(summary).toContain('Projected full-year profit')
+    expect(summary).toContain('7 month(s), factor 1.71')
+  })
+
+  it('does not annualize a completed year', () => {
+    const summary = buildSummaryText(
+      [],
+      { year: 2025, quarter: null, month: null },
+      settings(),
+      '2026-07-23'
+    )
+
+    expect(summary).not.toContain('Projected full-year profit')
+    expect(summary).toContain('Business profit before personal taxes')
+  })
+
   it('omits disabled church tax, Soli and zero prepayments', () => {
     const summary = buildSummaryText(
       [],

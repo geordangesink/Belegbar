@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { PDFDocument } from 'pdf-lib'
 import type { DocumentIssue, TaxDocument } from '@shared/domain'
 import {
   DocumentService,
@@ -51,10 +52,7 @@ describe('invalidateFieldEvidence', () => {
           netAmount: 0.7,
           description: 0.6
         },
-        issues: [
-          issue('llm_disagreement', 'currency'),
-          issue('llm_disagreement', 'description')
-        ],
+        issues: [issue('llm_disagreement', 'currency'), issue('llm_disagreement', 'description')],
         extractionRawJson: {
           llmCheck: {
             checkedAt: '2026-07-01T10:00:00.000Z',
@@ -72,9 +70,11 @@ describe('invalidateFieldEvidence', () => {
     expect(result.fieldConfidence).toEqual({ description: 0.6 })
     expect(result.issues).toEqual([issue('llm_disagreement', 'description')])
     expect(
-      (result.extractionRawJson as {
-        llmCheck: { fields: Record<string, unknown> }
-      }).llmCheck.fields
+      (
+        result.extractionRawJson as {
+          llmCheck: { fields: Record<string, unknown> }
+        }
+      ).llmCheck.fields
     ).toEqual({ description: { agrees: false, suggested: 'Hosting' } })
   })
 })
@@ -85,10 +85,7 @@ describe('core issue reconciliation', () => {
     expect(isIssueResolved(issue('unknown_currency', 'currency'), doc())).toBe(true)
     expect(isIssueResolved(issue('conflicting_totals', 'grossAmount'), doc())).toBe(true)
     expect(
-      isIssueResolved(
-        issue('conflicting_totals', 'grossAmount'),
-        doc({ grossAmountOriginal: 125 })
-      )
+      isIssueResolved(issue('conflicting_totals', 'grossAmount'), doc({ grossAmountOriginal: 125 }))
     ).toBe(false)
   })
 
@@ -174,7 +171,11 @@ describe('VAT treatment acceptance', () => {
       },
       audit: { append: () => undefined }
     } as unknown as Repositories
-    const service = new DocumentService({ dataDir: '/tmp', repos, log: nullLogger })
+    const service = new DocumentService({
+      dataDir: '/tmp',
+      repos,
+      log: nullLogger
+    })
 
     const result = await service.setVatTreatment('doc-1', 'DE_EXPENSE_NO_INPUT_VAT')
 
@@ -194,7 +195,11 @@ describe('VAT treatment acceptance', () => {
       documents: { getById: () => stored },
       audit: { append: () => undefined }
     } as unknown as Repositories
-    const service = new DocumentService({ dataDir: '/tmp', repos, log: nullLogger })
+    const service = new DocumentService({
+      dataDir: '/tmp',
+      repos,
+      log: nullLogger
+    })
 
     await expect(service.setVatTreatment('doc-1', 'UNKNOWN_REVIEW')).rejects.toThrow(
       'invalid_treatment_code'
@@ -246,12 +251,7 @@ describe('document deletion', () => {
       const service = new DocumentService({ dataDir, repos, log: nullLogger })
 
       const result = await service.deleteMany(
-        [
-          first.id,
-          '33333333-3333-4333-8333-333333333333',
-          second.id,
-          first.id
-        ],
+        [first.id, '33333333-3333-4333-8333-333333333333', second.id, first.id],
         'trash'
       )
 
@@ -334,6 +334,94 @@ describe('document deletion', () => {
   })
 })
 
+describe('document merging', () => {
+  it('appends pages, retains the primary record and trashes the source', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'belegbar-merge-'))
+    try {
+      const primary = doc({
+        id: '11111111-1111-4111-8111-111111111111',
+        direction: 'expense',
+        storedFilename: 'primary.pdf',
+        storedRelativePath: 'documents/2026/Q3/expense/primary.pdf',
+        pageCount: 1,
+        deletedAt: null,
+        reviewStatus: 'needs_review',
+        issues: [
+          {
+            code: 'possible_duplicate',
+            severity: 'critical',
+            messageKey: 'issues.possible_duplicate',
+            params: {
+              id: '22222222-2222-4222-8222-222222222222',
+              filename: 'source.pdf'
+            }
+          }
+        ],
+        reviewReasons: ['possible_duplicate']
+      })
+      const source = doc({
+        id: '22222222-2222-4222-8222-222222222222',
+        direction: 'expense',
+        storedFilename: 'source.pdf',
+        storedRelativePath: 'documents/2026/Q3/expense/source.pdf',
+        pageCount: 2,
+        deletedAt: null,
+        reviewStatus: 'needs_review'
+      })
+      const stored = new Map([
+        [primary.id, primary],
+        [source.id, source]
+      ])
+      for (const [document, pages] of [
+        [primary, 1],
+        [source, 2]
+      ] as const) {
+        const pdf = await PDFDocument.create()
+        for (let index = 0; index < pages; index++) pdf.addPage([200, 300])
+        const filePath = path.join(dataDir, document.storedRelativePath)
+        fs.mkdirSync(path.dirname(filePath), { recursive: true })
+        fs.writeFileSync(filePath, await pdf.save())
+      }
+      const audits: unknown[] = []
+      const repos = {
+        documents: {
+          getById: (id: string) => stored.get(id) ?? null,
+          update: (next: TaxDocument) => {
+            stored.set(next.id, next)
+            return next
+          }
+        },
+        audit: { append: (event: unknown) => audits.push(event) }
+      } as unknown as Repositories
+      const service = new DocumentService({ dataDir, repos, log: nullLogger })
+
+      const merged = await service.merge(primary.id, [source.id])
+      const mergedPdf = await PDFDocument.load(
+        fs.readFileSync(path.join(dataDir, primary.storedRelativePath))
+      )
+
+      expect(merged.pageCount).toBe(3)
+      expect(mergedPdf.getPageCount()).toBe(3)
+      expect(merged.issues).toEqual([])
+      expect(merged.reviewReasons).toEqual([])
+      expect(stored.get(source.id)?.deletedAt).not.toBeNull()
+      expect(
+        fs.existsSync(path.join(dataDir, 'documents', '.trash', `${source.id}__source.pdf`))
+      ).toBe(true)
+      expect(audits).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            documentId: primary.id,
+            eventType: 'documents_merged'
+          })
+        ])
+      )
+    } finally {
+      fs.rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('document copies', () => {
   it('copies active and trashed PDFs with collision suffixes and deduplicates IDs', async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'belegbar-copy-many-'))
@@ -378,21 +466,15 @@ describe('document copies', () => {
       } as unknown as Repositories
       const service = new DocumentService({ dataDir, repos, log: nullLogger })
 
-      const result = await service.saveDocumentCopies(
-        [active.id, trashed.id, active.id],
-        { kind: 'directory', path: destination }
-      )
+      const result = await service.saveDocumentCopies([active.id, trashed.id, active.id], {
+        kind: 'directory',
+        path: destination
+      })
 
       expect(result).toEqual({ canceled: false, saved: 2, failed: 0 })
-      expect(fs.readFileSync(path.join(destination, 'invoice.pdf'), 'utf8')).toBe(
-        'existing'
-      )
-      expect(fs.readFileSync(path.join(destination, 'invoice-2.pdf'), 'utf8')).toBe(
-        activeContent
-      )
-      expect(fs.readFileSync(path.join(destination, 'invoice-3.pdf'), 'utf8')).toBe(
-        trashedContent
-      )
+      expect(fs.readFileSync(path.join(destination, 'invoice.pdf'), 'utf8')).toBe('existing')
+      expect(fs.readFileSync(path.join(destination, 'invoice-2.pdf'), 'utf8')).toBe(activeContent)
+      expect(fs.readFileSync(path.join(destination, 'invoice-3.pdf'), 'utf8')).toBe(trashedContent)
       expect(fs.readFileSync(activePath, 'utf8')).toBe(activeContent)
       expect(fs.readFileSync(trashPath, 'utf8')).toBe(trashedContent)
     } finally {
@@ -480,10 +562,10 @@ describe('document copies', () => {
       } as unknown as Repositories
       const service = new DocumentService({ dataDir, repos, log: nullLogger })
 
-      const result = await service.saveDocumentCopies(
-        [good.id, missing.id, unverifiable.id],
-        { kind: 'directory', path: destination }
-      )
+      const result = await service.saveDocumentCopies([good.id, missing.id, unverifiable.id], {
+        kind: 'directory',
+        path: destination
+      })
 
       expect(result).toEqual({ canceled: false, saved: 1, failed: 2 })
       expect(fs.readFileSync(path.join(destination, 'good.pdf'), 'utf8')).toBe('good')

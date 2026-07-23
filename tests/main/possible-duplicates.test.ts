@@ -294,9 +294,8 @@ describe('ImportPipeline near-duplicate detection', () => {
     const dupIssue = imported.issues.find((i) => i.code === 'possible_duplicate')
     expect(dupIssue).toEqual({
       code: 'possible_duplicate',
-      severity: 'warning',
+      severity: 'critical',
       messageKey: 'issues.possible_duplicate',
-      field: undefined,
       params: { filename: existing.storedFilename, id: existing.id }
     })
     expect(imported.reviewStatus).toBe('needs_review')
@@ -318,9 +317,7 @@ describe('ImportPipeline near-duplicate detection', () => {
 
   it('adds no possible_duplicate issue when nothing matches', async () => {
     // same counterparty and amount, but a different day and invoice number
-    repos.documents.insert(
-      makeDoc({ invoiceDate: '2026-03-01', invoiceNumber: 'R-0900' })
-    )
+    repos.documents.insert(makeDoc({ invoiceDate: '2026-03-01', invoiceNumber: 'R-0900' }))
 
     const result = await runImport('%PDF-1.4\nunrelated receipt bytes')
     expect(['completed', 'completed_with_warnings']).toContain(result.status)
@@ -339,9 +336,7 @@ describe('ImportPipeline exchange-rate severity', () => {
     })
     const imported = repos.documents.getById(result.documentId!)!
 
-    expect(imported.issues.some((issue) => issue.code === 'missing_exchange_rate')).toBe(
-      false
-    )
+    expect(imported.issues.some((issue) => issue.code === 'missing_exchange_rate')).toBe(false)
     expect(imported.issues.some((issue) => issue.code === 'non_iso_currency')).toBe(true)
     expect(imported.exchangeRateToEur).toBe(0.92)
     expect(imported.exchangeRateSource).toBe('document')

@@ -397,6 +397,7 @@ export interface VatSummary {
   euReverseChargeRevenue: AmountBreakdown
   thirdCountryNonTaxableRevenue: AmountBreakdown
   taxExemptRevenue: AmountBreakdown
+  documentsNeedingReview: number
   revenueNeedingReview: number
   expensesNeedingReview: number
 }
@@ -405,6 +406,7 @@ export interface IncomeTaxEstimate {
   year: number
   recognizedIncome: AmountBreakdown
   recognizedExpenses: AmountBreakdown
+  recordedProfitToDate: number
   estimatedProfit: number
   otherTaxableIncome: number
   deductibleContributions: number
@@ -418,6 +420,9 @@ export interface IncomeTaxEstimate {
   assumptions: string[]
   incompleteItems: string[]
   isEstimateOnly: boolean
+  isAnnualized: boolean
+  projectionMonths: number
+  projectionFactor: number
 }
 
 export interface OverviewSummary {

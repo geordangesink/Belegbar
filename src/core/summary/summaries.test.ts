@@ -343,6 +343,24 @@ describe('computeVatSummary', () => {
 
     expect(summary.revenueNeedingReview).toBe(535)
     expect(summary.expensesNeedingReview).toBe(59.5)
+    expect(summary.documentsNeedingReview).toBe(2)
+  })
+
+  it('does not call confirmed documents pending review when only the payment date is missing', () => {
+    const confirmed = makeDoc({
+      vatTreatmentCode: 'DE_DOMESTIC_19',
+      invoiceDate: '2025-05-01',
+      paymentDate: null,
+      netAmountEur: 100,
+      vatAmountEur: 19,
+      grossAmountEur: 119
+    })
+
+    const summary = computeVatSummary([confirmed], Q2_2025, settings())
+
+    expect(summary.domesticTaxableRevenue.provisionalIds).toEqual([confirmed.id])
+    expect(summary.documentsNeedingReview).toBe(0)
+    expect(summary.revenueNeedingReview).toBe(0)
   })
 
   it('zeroes output and input VAT for Kleinunternehmer but keeps revenue and § 13b debt', () => {
@@ -427,6 +445,43 @@ describe('computeVatSummary', () => {
 })
 
 describe('computeIncomeTaxEstimate', () => {
+  it('projects the current full year from average monthly year-to-date profit', () => {
+    const docs = [
+      makeDoc({ paymentDate: '2026-01-15', netAmountEur: 6000, grossAmountEur: 7140 }),
+      makeDoc({ paymentDate: '2026-02-15', netAmountEur: 4000, grossAmountEur: 4760 }),
+      makeDoc({
+        direction: 'expense',
+        paymentDate: '2026-03-15',
+        netAmountEur: 2000,
+        grossAmountEur: 2380
+      }),
+      makeDoc({ paymentDate: '2026-05-15', netAmountEur: 50000, grossAmountEur: 59500 })
+    ]
+
+    const estimate = computeIncomeTaxEstimate(
+      docs,
+      2026,
+      settings({
+        otherTaxableIncome: 2400,
+        deductibleContributions: 1200,
+        incomeTaxPrepayments: 500
+      }),
+      '2026-04-20'
+    )
+
+    expect(estimate.recognizedIncome.confirmed).toBe(10000)
+    expect(estimate.recognizedExpenses.confirmed).toBe(2000)
+    expect(estimate.recordedProfitToDate).toBe(8000)
+    expect(estimate.estimatedProfit).toBe(24000)
+    expect(estimate.estimatedTaxableIncome).toBe(25200)
+    expect(estimate.estimatedIncomeTax).toBe(2903)
+    expect(estimate.suggestedReserve).toBe(2403)
+    expect(estimate.projectionMonths).toBe(4)
+    expect(estimate.projectionFactor).toBe(3)
+    expect(estimate.isAnnualized).toBe(true)
+    expect(estimate.isEstimateOnly).toBe(true)
+  })
+
   it('keeps business profit and taxable income before personal income tax', () => {
     const doc = makeDoc({
       paymentDate: '2026-05-10',
@@ -442,6 +497,18 @@ describe('computeIncomeTaxEstimate', () => {
     expect(estimate.estimatedProfit).not.toBe(
       estimate.estimatedTaxableIncome - estimate.estimatedIncomeTax
     )
+  })
+
+  it.each([
+    ['2026-01-10', 12],
+    ['2026-12-10', 1]
+  ])('uses the elapsed calendar months at %s', (asOfDate, factor) => {
+    const estimate = computeIncomeTaxEstimate([], 2026, settings(), asOfDate)
+    expect(estimate.projectionFactor).toBe(factor)
+    expect(estimate.recordedProfitToDate).toBe(0)
+    expect(estimate.estimatedProfit).toBe(0)
+    expect(estimate.suggestedReserve).toBe(0)
+    expect(estimate.isEstimateOnly).toBe(true)
   })
 
   it('only adds a church-tax assumption when church tax is enabled', () => {
@@ -499,6 +566,7 @@ describe('computeIncomeTaxEstimate', () => {
     expect(estimate.churchTax).toBe(0)
     expect(estimate.suggestedReserve).toBe(3303)
     expect(estimate.engineVersion).toBe('2025.1')
+    expect(estimate.isAnnualized).toBe(false)
     expect(estimate.incompleteItems).toEqual([])
     expect(estimate.isEstimateOnly).toBe(false)
     expect(estimate.assumptions.join(' ')).toContain('EÜR')
@@ -583,9 +651,10 @@ describe('computeIncomeTaxEstimate', () => {
 
   it('notes the engine fallback for unsupported years', () => {
     const doc = makeDoc({ paymentDate: '2027-02-01', netAmountEur: 1000 })
-    const estimate = computeIncomeTaxEstimate([doc], 2027, settings())
+    const estimate = computeIncomeTaxEstimate([doc], 2027, settings(), '2026-07-23')
     expect(estimate.engineVersion).toBe('2026.1')
     expect(estimate.assumptions.join(' ')).toContain('2026')
+    expect(estimate.isAnnualized).toBe(false)
   })
 
   it('marks the method question when the user is unsure', () => {

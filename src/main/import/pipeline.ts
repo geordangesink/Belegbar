@@ -36,10 +36,7 @@ import type { ImportStartResult } from '@shared/api'
 import type { Repositories } from '../db/repository'
 import type { ExtractionService, DocumentTextResult } from '../extraction/service'
 import type { Logger } from '../log'
-import {
-  resolveOfficialExchangeRate,
-  type OfficialExchangeRateProviders
-} from '../rates/resolve'
+import { resolveOfficialExchangeRate, type OfficialExchangeRateProviders } from '../rates/resolve'
 import { dataPaths, documentRelativeDir, isInside, resolveInside } from '../storage/paths'
 import {
   atomicMove,
@@ -109,7 +106,10 @@ function todayIso(): string {
 }
 
 function toPosixRelative(...segments: string[]): string {
-  return path.join(...segments).split(path.sep).join('/')
+  return path
+    .join(...segments)
+    .split(path.sep)
+    .join('/')
 }
 
 export class ImportPipeline {
@@ -222,7 +222,7 @@ export class ImportPipeline {
     const possibleDuplicate = this.findPossibleDuplicate(doc.direction, parsed, doc.sha256)
     if (possibleDuplicate) {
       issues.push(
-        issue('possible_duplicate', 'warning', undefined, {
+        issue('possible_duplicate', 'critical', undefined, {
           filename: possibleDuplicate.storedFilename,
           id: possibleDuplicate.id
         })
@@ -238,9 +238,7 @@ export class ImportPipeline {
       }
     }
 
-    const invoiceDate = corrected.has('invoiceDate')
-      ? doc.invoiceDate
-      : parsed.invoiceDate.value
+    const invoiceDate = corrected.has('invoiceDate') ? doc.invoiceDate : parsed.invoiceDate.value
     const period = invoiceDate ? periodOfIsoDate(invoiceDate) : null
 
     const take = <K extends keyof TaxDocument, V>(field: K, parsedValue: V): V | TaxDocument[K] =>
@@ -320,9 +318,9 @@ export class ImportPipeline {
     }
 
     // classification: manual override wins, otherwise re-run the engine
-    const stored = doc.extractionRawJson as
-      | { vatClassification?: { manualOverride?: boolean } }
-      | null
+    const stored = doc.extractionRawJson as {
+      vatClassification?: { manualOverride?: boolean }
+    } | null
     const hasManualOverride = stored?.vatClassification?.manualOverride === true
     let classification: VatClassificationResult | undefined
     if (!hasManualOverride) {
@@ -361,11 +359,7 @@ export class ImportPipeline {
         k !== 'fieldConfidence' &&
         JSON.stringify(next[k]) !== JSON.stringify(doc[k])
     )
-    const saved = this.deps.repos.documents.updateIfUnchanged(
-      next,
-      doc.updatedAt,
-      classification
-    )
+    const saved = this.deps.repos.documents.updateIfUnchanged(next, doc.updatedAt, classification)
     if (!saved) return false
     if (settings.llmCheckerEnabled && this.deps.llm?.isReady()) this.deps.llm.enqueue(id)
     this.deps.repos.audit.append({
@@ -387,7 +381,10 @@ export class ImportPipeline {
     if (row.status !== 'failed' && row.status !== 'duplicate') {
       throw new Error('invalid_state')
     }
-    this.deps.repos.importJobs.update(fileId, { status: 'queued', errorKey: null })
+    this.deps.repos.importJobs.update(fileId, {
+      status: 'queued',
+      errorKey: null
+    })
     const queued: QueuedFile = {
       fileId,
       importId: row.importId,
@@ -410,7 +407,10 @@ export class ImportPipeline {
   async recoverOnBoot(): Promise<void> {
     const unfinished = this.deps.repos.importJobs.listUnfinished()
     for (const row of unfinished) {
-      this.deps.repos.importJobs.update(row.id, { status: 'failed', errorKey: 'interrupted' })
+      this.deps.repos.importJobs.update(row.id, {
+        status: 'failed',
+        errorKey: 'interrupted'
+      })
       this.deps.repos.audit.append({
         documentId: row.documentId,
         eventType: 'import_interrupted',
@@ -422,7 +422,10 @@ export class ImportPipeline {
     try {
       const entries = await fsp.readdir(tmpDir)
       for (const entry of entries) {
-        await fsp.rm(path.join(tmpDir, entry), { force: true, recursive: true })
+        await fsp.rm(path.join(tmpDir, entry), {
+          force: true,
+          recursive: true
+        })
       }
       if (entries.length > 0) {
         this.deps.log.info('tmp_orphans_cleaned', { count: entries.length })
@@ -437,7 +440,9 @@ export class ImportPipeline {
       // missing tmp dir is fine
     }
     if (unfinished.length > 0) {
-      this.deps.log.warn('import_jobs_interrupted', { count: unfinished.length })
+      this.deps.log.warn('import_jobs_interrupted', {
+        count: unfinished.length
+      })
     }
   }
 
@@ -500,10 +505,7 @@ export class ImportPipeline {
    * Record a file's terminal outcome. When the batch's last outstanding file
    * settles, the tracker is dropped and onBatchDone (if provided) fires once.
    */
-  private settleFile(
-    file: QueuedFile,
-    outcome: 'ok' | 'review' | 'failed' | 'duplicate'
-  ): void {
+  private settleFile(file: QueuedFile, outcome: 'ok' | 'review' | 'failed' | 'duplicate'): void {
     if (file.settled) return
     file.settled = true
     const tracker = this.batches.get(file.importId)
@@ -560,7 +562,10 @@ export class ImportPipeline {
 
     const fail = async (errorKey: string): Promise<void> => {
       await fsp.rm(tmpPath, { force: true }).catch(() => undefined)
-      this.deps.repos.importJobs.update(file.fileId, { status: 'failed', errorKey })
+      this.deps.repos.importJobs.update(file.fileId, {
+        status: 'failed',
+        errorKey
+      })
       this.emitProgress(file, 'failed', { errorKey, issues: [] })
       this.deps.log.warn('import_failed', { fileId: file.fileId, errorKey })
       this.settleFile(file, 'failed')
@@ -584,7 +589,7 @@ export class ImportPipeline {
       const sha256 = await sha256File(file.sourcePath)
       const existing = this.deps.repos.documents.findActiveBySha256(sha256)
       if (existing && file.duplicateAction !== 'import_anyway') {
-        const duplicateIssue = issue('duplicate_detected', 'info', undefined, {
+        const duplicateIssue = issue('duplicate_detected', 'critical', undefined, {
           existingDocumentId: existing.id
         })
         this.deps.repos.importJobs.update(file.fileId, {
@@ -653,7 +658,7 @@ export class ImportPipeline {
       const possibleDuplicate = this.findPossibleDuplicate(file.direction, parsed, sha256)
       if (possibleDuplicate) {
         issues.push(
-          issue('possible_duplicate', 'warning', undefined, {
+          issue('possible_duplicate', 'critical', undefined, {
             filename: possibleDuplicate.storedFilename,
             id: possibleDuplicate.id
           })
@@ -788,7 +793,10 @@ export class ImportPipeline {
       // 14 — final status
       const finalStatus: ProcessingStatus =
         issues.length > 0 ? 'completed_with_warnings' : 'completed'
-      this.deps.repos.importJobs.update(file.fileId, { status: finalStatus, documentId })
+      this.deps.repos.importJobs.update(file.fileId, {
+        status: finalStatus,
+        documentId
+      })
       this.emitProgress(file, finalStatus, {
         issues,
         documentId,
@@ -887,10 +895,24 @@ export class ImportPipeline {
 
     if (currency === null) {
       // parser is responsible for flagging a missing currency; never guess EUR
-      return { currency, rate: null, netEur: null, vatEur: null, grossEur: null, issues }
+      return {
+        currency,
+        rate: null,
+        netEur: null,
+        vatEur: null,
+        grossEur: null,
+        issues
+      }
     }
     if (currency === 'EUR') {
-      return { currency, rate: null, netEur: net, vatEur: vat, grossEur: gross, issues }
+      return {
+        currency,
+        rate: null,
+        netEur: net,
+        vatEur: vat,
+        grossEur: gross,
+        issues
+      }
     }
 
     const rateDate = invoiceDate ?? todayIso()
@@ -899,7 +921,12 @@ export class ImportPipeline {
     // a rate printed on the document itself is the best audit source
     const inline = extractInlineRate(fullText)
     if (inline && inline.currency.toUpperCase() === currency) {
-      rate = { currency, date: rateDate, rateToEur: inline.rateToEur, source: 'document' }
+      rate = {
+        currency,
+        date: rateDate,
+        rateToEur: inline.rateToEur,
+        source: 'document'
+      }
     }
 
     const iso = isIsoCurrency(currency)
@@ -915,7 +942,14 @@ export class ImportPipeline {
 
     if (!rate) {
       issues.push(issue('missing_exchange_rate', 'critical', 'exchangeRateToEur'))
-      return { currency, rate: null, netEur: null, vatEur: null, grossEur: null, issues }
+      return {
+        currency,
+        rate: null,
+        netEur: null,
+        vatEur: null,
+        grossEur: null,
+        issues
+      }
     }
 
     return {
@@ -963,7 +997,10 @@ export class ImportPipeline {
         // check and the move — atomicMove is exclusive, so nothing was
         // clobbered; take the next collision suffix
         if (err instanceof Error && err.message === 'destination_exists') {
-          this.deps.log.info('filename_collision', { attempt, sameContent: false })
+          this.deps.log.info('filename_collision', {
+            attempt,
+            sameContent: false
+          })
           continue
         }
         throw err
@@ -992,7 +1029,11 @@ export class ImportPipeline {
     currencyResult: Awaited<ReturnType<ImportPipeline['resolveCurrency']>>
     storedFilename: string
     storedRelativePath: string
-    period: { year: number; quarter: 1 | 2 | 3 | 4 | null; month: number | null } | null
+    period: {
+      year: number
+      quarter: 1 | 2 | 3 | 4 | null
+      month: number | null
+    } | null
     fullText: string
     issues: DocumentIssue[]
     now: string
@@ -1020,8 +1061,7 @@ export class ImportPipeline {
     const confidences = Object.values(fieldConfidence)
     const extractionConfidence =
       confidences.length > 0
-        ? Math.round((confidences.reduce((a, b) => a + b, 0) / confidences.length) * 1000) /
-          1000
+        ? Math.round((confidences.reduce((a, b) => a + b, 0) / confidences.length) * 1000) / 1000
         : null
 
     const reviewReasons = [...new Set(args.issues.map((i) => i.code))]

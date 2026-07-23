@@ -2,9 +2,17 @@ import { describe, expect, it } from 'vitest'
 import {
   dateInPeriod,
   determineRecognition,
+  localIsoDate,
   periodOfIsoDate,
   quarterOfMonth
 } from './period'
+
+describe('localIsoDate', () => {
+  it('uses local calendar fields instead of UTC conversion', () => {
+    const date = new Date(2026, 0, 2, 0, 30)
+    expect(localIsoDate(date)).toBe('2026-01-02')
+  })
+})
 
 describe('quarterOfMonth', () => {
   it('maps months to quarters', () => {
